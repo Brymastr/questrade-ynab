@@ -1,0 +1,20 @@
+meta {
+  name: list accounts
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{api_server}}v1/accounts
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

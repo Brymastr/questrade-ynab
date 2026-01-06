@@ -1,0 +1,33 @@
+meta {
+  name: login oauth2/token
+  type: http
+  seq: 1
+}
+
+post {
+  url: https://login.questrade.com/oauth2/token?grant_type=refresh_token&refresh_token={{refresh_token}}
+  body: json
+  auth: none
+}
+
+params:query {
+  grant_type: refresh_token
+  refresh_token: {{refresh_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+script:post-response {
+  var body = res.body;
+  console.log(res.body);
+  bru.setEnvVar('access_token', body.access_token);
+  bru.setEnvVar('api_server', body.api_server);
+  bru.setEnvVar('refresh_token', body.refresh_token);
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
