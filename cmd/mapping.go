@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/brymastr/questrade-ynab/internal/ynab"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -24,194 +24,11 @@ type UpdatePreview struct {
 	YNABAccountName string
 }
 
-var dryRun bool
-
-var syncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Sync Questrade account balances to YNAB",
-	Long:  "Fetch investment account balances from Questrade and update the corresponding accounts in YNAB",
+var mappingCmd = &cobra.Command{
+	Use:   "mapping",
+	Short: "Manage account mappings between Questrade and YNAB",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := loadConfig(); err != nil {
-			fmt.Printf("Error loading config: %v\n", err)
-			os.Exit(1)
-		}
-
-		// remember original refresh token so we can persist rotated value to YAML if it changed
-		origRefresh := viper.GetString("questrade_refresh_token")
-
-		// Ensure a valid Questrade client (will refresh or prompt as needed)
-
-		qClient, err := ensureValidQuestradeClient()
-		if err != nil {
-			fmt.Printf("Error ensuring Questrade auth: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Persist rotated refresh token if it changed
-		newRefresh := qClient.GetRefreshToken()
-		if newRefresh != "" && newRefresh != origRefresh {
-			viper.Set("questrade_refresh_token", newRefresh)
-			configDir := getConfigDir()
-			if err := viper.WriteConfigAs(filepath.Join(configDir, "config.json")); err != nil {
-				log.Printf("Warning: failed to persist refreshed token: %v", err)
-			}
-		}
-
-		// Ensure YNAB values are present
-		ynabToken := viper.GetString("ynab_access_token")
-		budgetID := viper.GetString("ynab_budget_id")
-		accountMappingStr := viper.GetString("account_mapping")
-
-		if ynabToken == "" || budgetID == "" {
-			fmt.Println("Missing required configuration. Please run 'questrade-ynab auth set' or 'questrade-ynab auth login' first")
-			os.Exit(1)
-		}
-
-		// Parse account mapping
-		var accountMapping map[string]string
-		if err := json.Unmarshal([]byte(accountMappingStr), &accountMapping); err != nil {
-			fmt.Printf("Error parsing account mapping: %v\n", err)
-			os.Exit(1)
-		}
-
-		yClient := ynab.NewClient(ynabToken, budgetID)
-		// Get Questrade accounts
-		fmt.Println("Fetching Questrade accounts...")
-		qAccounts, err := qClient.GetAccounts()
-		if err != nil {
-			fmt.Printf("Error fetching Questrade accounts: %v\n", err)
-			os.Exit(1)
-		}
-
-		if len(qAccounts) == 0 {
-			fmt.Println("No Questrade accounts found")
-			os.Exit(1)
-		}
-
-		// Get YNAB accounts
-		fmt.Println("Fetching YNAB accounts...")
-		yAccounts, err := yClient.GetAccounts()
-		if err != nil {
-			fmt.Printf("Error fetching YNAB accounts: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Create YNAB account lookup by ID
-		yAccountsMap := make(map[string]*ynab.Account)
-		for i := range yAccounts {
-			yAccountsMap[yAccounts[i].ID] = &yAccounts[i]
-		}
-
-		// Build preview of changes
-		fmt.Println("\nPreparing updates...")
-		var updates []UpdatePreview
-		skipped := 0
-
-		for _, qAccount := range qAccounts {
-			// Check if this account should be synced
-			ynabID, ok := accountMapping[qAccount.Number]
-			if !ok {
-				log.Printf("Skipping Questrade account %s (%s) - not in account mapping\n", qAccount.Number, qAccount.Type)
-				skipped++
-				continue
-			}
-
-			// Get YNAB account
-			yAccount, exists := yAccountsMap[ynabID]
-			if !exists {
-				log.Printf("Skipping Questrade account %s - YNAB account %s not found\n", qAccount.Number, ynabID)
-				skipped++
-				continue
-			}
-
-			// Get current balance
-			balance, err := qClient.GetAccountBalances(qAccount.Number)
-			if err != nil {
-				log.Printf("Error getting balance for account %s: %v\n", qAccount.Number, err)
-				skipped++
-				continue
-			}
-
-			updates = append(updates, UpdatePreview{
-				QuestradeName:   qAccount.Number,
-				QuestradeName2:  qAccount.Type,
-				QNumber:         qAccount.Number,
-				CurrentBalance:  float64(yAccount.Balance) / 1000,
-				NewBalance:      balance.Total,
-				YNABAccountID:   ynabID,
-				YNABAccountName: yAccount.Name,
-			})
-		}
-
-		// Display preview
-		fmt.Println("\n" + strings.Repeat("=", 100))
-		fmt.Println("SYNC PREVIEW - The following accounts will be updated:")
-		fmt.Println(strings.Repeat("=", 100))
-
-		if len(updates) == 0 {
-			fmt.Println("No accounts to sync")
-			return
-		}
-
-		for i, update := range updates {
-			fmt.Printf("\n%d. Questrade Account #%s (%s)\n", i+1, update.QNumber, update.QuestradeName2)
-			fmt.Printf("   → YNAB Account: %s\n", update.YNABAccountName)
-			fmt.Printf("   Current Balance: $%.2f\n", update.CurrentBalance)
-			fmt.Printf("   New Balance:     $%.2f\n", update.NewBalance)
-			if update.CurrentBalance != update.NewBalance {
-				change := update.NewBalance - update.CurrentBalance
-				if change > 0 {
-					fmt.Printf("   Change:          +$%.2f\n", change)
-				} else {
-					fmt.Printf("   Change:          -$%.2f\n", -change)
-				}
-			}
-		}
-
-		fmt.Println("\n" + strings.Repeat("=", 100))
-		fmt.Printf("Total accounts to update: %d\n", len(updates))
-		fmt.Printf("Skipped accounts: %d\n", skipped)
-
-		// Check for dry run
-		if dryRun {
-			fmt.Println("\n[DRY RUN] No changes were made")
-			return
-		}
-
-		// Ask for approval
-		fmt.Println("\n" + strings.Repeat("=", 100))
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Do you want to proceed with these updates? (yes/no): ")
-		response, _ := reader.ReadString('\n')
-		response = strings.TrimSpace(strings.ToLower(response))
-
-		if response != "yes" && response != "y" {
-			fmt.Println("Sync cancelled")
-			return
-		}
-
-		// Apply updates
-		fmt.Println("\nApplying updates...")
-		synced := 0
-		failed := 0
-
-		for i, update := range updates {
-			// Convert balance to milliunits (1000 = $1)
-			balanceMilliunits := int64(update.NewBalance * 1000)
-
-			// Update YNAB account
-			if err := yClient.UpdateAccountBalance(update.YNABAccountID, balanceMilliunits); err != nil {
-				log.Printf("Error updating YNAB account %s: %v\n", update.YNABAccountID, err)
-				failed++
-				continue
-			}
-
-			fmt.Printf("✓ (%d/%d) Updated %s - New balance: $%.2f\n", i+1, len(updates), update.YNABAccountName, update.NewBalance)
-			synced++
-		}
-
-		fmt.Println("\n" + strings.Repeat("=", 100))
-		fmt.Printf("Sync completed: %d accounts updated, %d failed, %d skipped\n", synced, failed, skipped)
+		cmd.Help()
 	},
 }
 
@@ -331,7 +148,153 @@ var mappingListCmd = &cobra.Command{
 	},
 }
 
+var mappingSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Interactive account mapping setup (auth must already be configured)",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Ensure we have a valid Questrade client (will prompt or refresh as needed)
+		qClient, err := ensureValidQuestradeClient()
+		if err != nil {
+			fmt.Printf("Error ensuring Questrade auth: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Ensure YNAB values are present
+		ynabToken := viper.GetString("ynab_access_token")
+		budgetID := viper.GetString("ynab_budget_id")
+		if ynabToken == "" || budgetID == "" {
+			fmt.Println("Missing required YNAB configuration. Please run 'questrade-ynab auth set' first")
+			os.Exit(1)
+		}
+
+		yClient := ynab.NewClient(ynabToken, budgetID)
+
+		// Get accounts
+		fmt.Println("\nFetching accounts for mapping setup...")
+		qAccounts, err := qClient.GetAccounts()
+		if err != nil {
+			fmt.Printf("Error fetching Questrade accounts: %v\n", err)
+			os.Exit(1)
+		}
+		yAccounts, err := yClient.GetAccounts()
+		if err != nil {
+			fmt.Printf("Error fetching YNAB accounts: %v\n", err)
+			os.Exit(1)
+		}
+		accountMapping := make(map[string]string)
+		for {
+			// Prepare Questrade account options
+			qOptions := []string{}
+			for _, acc := range qAccounts {
+				balanceStr := "N/A"
+				if acc.Balances != nil && len(acc.Balances.CombinedBalances) > 0 {
+					balanceStr = fmt.Sprintf("$%.2f", acc.Balances.CombinedBalances[0].TotalEquity)
+				}
+				mapped := ""
+				if ynabID, ok := accountMapping[acc.Number]; ok {
+					mapped = fmt.Sprintf(" [MAPPED to %s]", ynabID)
+				}
+				qOptions = append(qOptions, fmt.Sprintf("Account #%s (%s) - Balance: %s%s", acc.Number, acc.Type, balanceStr, mapped))
+			}
+			qOptions = append(qOptions, "Finish mapping")
+
+			templates := &promptui.SelectTemplates{
+				Label:    "{{ . }}",
+				Active:   "\u001b[1;44m> {{ . }}\u001b[0m",
+				Inactive: "  {{ . }}",
+				Selected: "\u001b[1;32m✔ {{ . }}\u001b[0m",
+			}
+
+			prompt := promptui.Select{
+				Label:     "Select a Questrade account to map (select 'Finish mapping' to save and exit)",
+				Items:     qOptions,
+				Size:      10,
+				Templates: templates,
+			}
+			idx, _, err := prompt.Run()
+			if err != nil {
+				fmt.Printf("Prompt error: %v\n", err)
+				break
+			}
+			if idx == len(qOptions)-1 {
+				// User selected 'Finish mapping'
+				break
+			}
+			selectedQAccount := &qAccounts[idx]
+
+			// Prepare YNAB account options
+			yOptions := []string{}
+			for _, acc := range yAccounts {
+				balanceStr := fmt.Sprintf("$%.2f", float64(acc.Balance)/1000)
+				yOptions = append(yOptions, fmt.Sprintf("%s (%s) - Balance: %s", acc.Name, acc.Type, balanceStr))
+			}
+			yTemplates := &promptui.SelectTemplates{
+				Label:    "{{ . }}",
+				Active:   "\u001b[1;44m> {{ . }}\u001b[0m",
+				Inactive: "  {{ . }}",
+				Selected: "\u001b[1;32m✔ {{ . }}\u001b[0m",
+			}
+			yPrompt := promptui.Select{
+				Label:     fmt.Sprintf("Map Questrade #%s to YNAB account", selectedQAccount.Number),
+				Items:     yOptions,
+				Size:      10,
+				Templates: yTemplates,
+			}
+			yIdx, _, err := yPrompt.Run()
+			if err != nil {
+				fmt.Printf("Prompt error: %v\n", err)
+				continue
+			}
+			selectedYAccount := yAccounts[yIdx]
+			accountMapping[selectedQAccount.Number] = selectedYAccount.ID
+			fmt.Printf("✓ Mapped Questrade Account #%s to YNAB Account '%s'\n", selectedQAccount.Number, selectedYAccount.Name)
+		}
+
+		// Convert mapping to JSON and persist only mapping to viper/yaml
+		mappingJSON, err := json.Marshal(accountMapping)
+		if err != nil {
+			fmt.Printf("Error creating account mapping: %v\n", err)
+			os.Exit(1)
+		}
+
+		configDir := getConfigDir()
+		if err := os.MkdirAll(configDir, 0700); err != nil {
+			fmt.Printf("Error creating config directory: %v\n", err)
+			os.Exit(1)
+		}
+
+		viper.SetDefault("account_mapping", string(mappingJSON))
+
+		// Write mapping to flat JSON file called mappings.json
+		mappingPath := filepath.Join(configDir, "mappings.json")
+		if err := os.WriteFile(mappingPath, mappingJSON, 0600); err != nil {
+			fmt.Printf("Error writing mappings.json file: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Display summary
+		fmt.Println("\n" + strings.Repeat("=", 50))
+		fmt.Println("Mapping Summary:")
+		fmt.Println(strings.Repeat("=", 50))
+		fmt.Printf("Mapping saved to %s\n", mappingPath)
+		fmt.Printf("\nAccount Mappings:\n")
+		for qAcctNum, yAcctID := range accountMapping {
+			var yAcctName string
+			for _, acc := range yAccounts {
+				if acc.ID == yAcctID {
+					yAcctName = acc.Name
+					break
+				}
+			}
+			fmt.Printf("  Questrade #%s → YNAB: %s\n", qAcctNum, yAcctName)
+		}
+		if len(accountMapping) == 0 {
+			fmt.Println("  No accounts mapped")
+		}
+	},
+}
+
 func init() {
 	mappingCmd.AddCommand(mappingListCmd)
-	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying them")
+	mappingCmd.AddCommand(mappingSetCmd)
 }

@@ -9,6 +9,52 @@ import (
 	"time"
 )
 
+// Transaction represents a YNAB transaction to be created
+type Transaction struct {
+	AccountID string `json:"account_id"`
+	Date      string `json:"date"`
+	Amount    int64  `json:"amount"`
+	PayeeName string `json:"payee_name"`
+	Memo      string `json:"memo,omitempty"`
+	Cleared   string `json:"cleared,omitempty"`
+	Approved  bool   `json:"approved"`
+}
+
+type CreateTransactionRequest struct {
+	Transaction Transaction `json:"transaction"`
+}
+
+// CreateTransaction posts a single transaction to YNAB
+func (c *Client) CreateTransaction(tx Transaction) error {
+	url := fmt.Sprintf("%s/budgets/%s/transactions", baseURL, c.budgetID)
+	reqBody := CreateTransactionRequest{Transaction: tx}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal transaction: %w", err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.accessToken))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		var errResp ErrorResponse
+		_ = json.Unmarshal(respBody, &errResp)
+		return fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errResp.Error.Name, errResp.Error.Detail)
+	}
+	return nil
+}
+
 const baseURL = "https://api.ynab.com/v1"
 
 type Client struct {

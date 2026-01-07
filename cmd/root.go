@@ -24,4 +24,5 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(mappingCmd)
 }
