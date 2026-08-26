@@ -112,13 +112,20 @@ var mappingListCmd = &cobra.Command{
 
 		// Print mapping of Questrade accounts to YNAB accounts (by name)
 		mappingPath := filepath.Join(configDir, "mappings.json")
-		var accountMapping map[string]string
-		mappingData, err := os.ReadFile(mappingPath)
-		if err == nil {
-			_ = json.Unmarshal(mappingData, &accountMapping)
-		} else {
-			accountMapping = make(map[string]string)
-		}
+		       var accountMapping map[string]string
+		       mappingData, err := os.ReadFile(mappingPath)
+		       if err == nil {
+			       if len(mappingData) == 0 {
+				       accountMapping = make(map[string]string)
+			       } else {
+				       if err := json.Unmarshal(mappingData, &accountMapping); err != nil {
+					       fmt.Printf("Error parsing mappings.json: %v\n", err)
+					       accountMapping = make(map[string]string)
+				       }
+			       }
+		       } else {
+			       accountMapping = make(map[string]string)
+		       }
 
 		// Build lookup maps for names
 		qNumToName := make(map[string]string)

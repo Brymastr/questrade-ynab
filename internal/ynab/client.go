@@ -63,6 +63,11 @@ type Client struct {
 	httpClient  *http.Client
 }
 
+type Budget struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type Account struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -99,6 +104,11 @@ func NewClient(accessToken, budgetID string) *Client {
 		budgetID:    budgetID,
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// NewClientForBudgets creates a client without a budget ID, suitable only for GetBudgets().
+func NewClientForBudgets(accessToken string) *Client {
+	return NewClient(accessToken, "")
 }
 
 // GetAccounts retrieves all accounts in the specified budget
@@ -178,15 +188,14 @@ func (c *Client) UpdateAccountBalance(accountID string, amountMilliunits int64) 
 	return nil
 }
 
-// GetBudgets retrieves all available budgets
-func (c *Client) GetBudgets() ([]map[string]interface{}, error) {
+// GetBudgets retrieves all available budgets.
+func (c *Client) GetBudgets() ([]Budget, error) {
 	url := fmt.Sprintf("%s/budgets", baseURL)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.accessToken))
 
 	resp, err := c.httpClient.Do(req)
@@ -206,17 +215,13 @@ func (c *Client) GetBudgets() ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("API returned status %d: %s - %s", resp.StatusCode, errResp.Error.Name, errResp.Error.Detail)
 	}
 
-	var budgetsResp map[string]interface{}
+	var budgetsResp struct {
+		Data struct {
+			Budgets []Budget `json:"budgets"`
+		} `json:"data"`
+	}
 	if err := json.Unmarshal(body, &budgetsResp); err != nil {
 		return nil, fmt.Errorf("failed to parse budgets response: %w", err)
 	}
-
-	data := budgetsResp["data"].(map[string]interface{})
-	budgets := data["budgets"].([]interface{})
-	var result []map[string]interface{}
-	for _, b := range budgets {
-		result = append(result, b.(map[string]interface{}))
-	}
-
-	return result, nil
+	return budgetsResp.Data.Budgets, nil
 }

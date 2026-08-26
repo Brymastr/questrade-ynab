@@ -74,6 +74,18 @@ func NewClient(refreshToken string) *Client {
 	}
 }
 
+// NewClientFromTokens creates a client pre-loaded with cached tokens (e.g. from DB).
+// Call IsTokenValid() to check if the access token is still good; call Refresh() if not.
+func NewClientFromTokens(refreshToken, accessToken, apiServer string, expiresAt time.Time) *Client {
+	return &Client{
+		refreshToken: refreshToken,
+		accessToken:  accessToken,
+		apiServer:    apiServer,
+		expiresAt:    expiresAt,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
 // Refresh exchanges the stored refresh token for a short-lived access token and API server
 // It returns the parsed token response so callers may persist values as needed.
 func (c *Client) Refresh() (*TokenResponse, error) {
