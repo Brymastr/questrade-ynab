@@ -37,6 +37,10 @@ questrade-ynab
 web/node_modules/
 web/dist/
 
+# Build output / air live-reload temp
+bin/
+tmp/
+
 # SQLite data
 data/
 

@@ -1,10 +1,14 @@
 .PHONY: help dev backend frontend install build build-backend build-frontend clean
 
+# air (Go live reload) — referenced by absolute path so it works even when
+# $(go env GOPATH)/bin isn't on PATH.
+AIR := $(shell go env GOPATH)/bin/air
+
 # Default target: show available commands
 help:
 	@echo "Targets:"
 	@echo "  make dev       - run backend (:8080) and frontend (:5173) together"
-	@echo "  make backend   - run the Go API server + scheduler"
+	@echo "  make backend   - run the Go API server + scheduler (live reload via air)"
 	@echo "  make frontend  - run the Vite dev server"
 	@echo "  make install   - install frontend npm dependencies"
 	@echo "  make build     - build backend binary and frontend bundle"
@@ -20,8 +24,11 @@ dev:
 		$(MAKE) frontend & \
 		wait
 
+# Live-reloads on .go/.env changes via air (see .air.toml). Installs air on
+# first run if it isn't present.
 backend:
-	go run . serve
+	@test -x "$(AIR)" || { echo "Installing air (live reload)..."; go install github.com/air-verse/air@latest; }
+	@"$(AIR)"
 
 frontend:
 	cd web && npm run dev -- --host
@@ -44,4 +51,4 @@ build-frontend:
 # --- Cleanup ---------------------------------------------------------------
 
 clean:
-	rm -rf bin web/dist
+	rm -rf bin tmp web/dist

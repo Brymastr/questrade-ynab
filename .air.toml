@@ -1,0 +1,18 @@
+# Live-reload config for the Go backend (used by `make backend`).
+# Rebuilds and restarts the server whenever a .go file or .env changes.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/questrade-ynab ."
+entrypoint = "./tmp/questrade-ynab"
+args_bin = ["serve"]
+include_ext = ["go"]
+include_file = [".env"]
+exclude_dir = ["web", "tmp", "bin", "data", ".git"]
+exclude_regex = ["_test\\.go"]
+delay = 800
+stop_on_error = true
+
+[misc]
+clean_on_exit = true
