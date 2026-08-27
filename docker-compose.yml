@@ -1,0 +1,50 @@
+services:
+  # Cloudflare Tunnel — exposes local services to the internet over HTTPS
+  # without opening any inbound ports. Gives you a stable public URL for the
+  # Questrade/YNAB OAuth redirect_uri.
+  #
+  # Setup:
+  #   1. Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels -> Create a tunnel
+  #   2. Choose "Cloudflared", name it, and copy the tunnel token it shows.
+  #   3. Put it in .env as CLOUDFLARE_TUNNEL_TOKEN=...
+  #   4. Under the tunnel's "Public Hostname" tab, route your hostname to the
+  #      local service (e.g. https://app.example.com -> http://web:80, added later).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+
+# --- Added later as we build up ------------------------------------------
+#
+#  api:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.api
+#    environment:
+#      PORT: "8080"
+#      DATABASE_PATH: /data/app.db
+#      JWT_SECRET: ${JWT_SECRET}
+#      COOKIE_SECURE: "true"
+#      APP_URL: ${APP_URL}
+#      QUESTRADE_CLIENT_ID: ${QUESTRADE_CLIENT_ID}
+#      QUESTRADE_CLIENT_SECRET: ${QUESTRADE_CLIENT_SECRET}
+#      QUESTRADE_REDIRECT_URI: ${APP_URL}/auth/questrade/callback
+#      YNAB_CLIENT_ID: ${YNAB_CLIENT_ID}
+#      YNAB_CLIENT_SECRET: ${YNAB_CLIENT_SECRET}
+#      YNAB_REDIRECT_URI: ${APP_URL}/auth/ynab/callback
+#    volumes:
+#      - sqlite_data:/data
+#    restart: unless-stopped
+#
+#  web:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.web
+#    depends_on:
+#      - api
+#    restart: unless-stopped
+#
+# volumes:
+#   sqlite_data:

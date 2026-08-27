@@ -2,6 +2,7 @@ package questrade
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,11 @@ import (
 )
 
 const productionAuthURL = "https://login.questrade.com/oauth2/token"
+
+// ErrUnauthorized is returned (wrapped) when Questrade rejects the access token
+// with a 401. Callers should force a token refresh and retry, since a locally
+// unexpired token can still be invalidated server-side.
+var ErrUnauthorized = errors.New("questrade: access token unauthorized")
 
 type Client struct {
 	refreshToken string
@@ -317,6 +323,9 @@ func (c *Client) GetAccounts() ([]Account, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("API returned status %d: %s: %w", resp.StatusCode, string(body), ErrUnauthorized)
+		}
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 

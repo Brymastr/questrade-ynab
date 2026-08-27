@@ -32,3 +32,13 @@ Thumbs.db
 # Config file
 .questrade-ynab/
 questrade-ynab
+
+# Web build output
+web/node_modules/
+web/dist/
+
+# SQLite data
+data/
+
+# Environment secrets
+.env
