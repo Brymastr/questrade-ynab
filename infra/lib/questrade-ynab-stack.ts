@@ -85,8 +85,11 @@ export class QuestradeYnabStack extends cdk.Stack {
     table.grantReadWriteData(fn);
     secret.grantRead(fn);
 
-    // IAM-authed Function URL, reachable only via CloudFront (OAC signs requests).
-    const fnUrl = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
+    // Public Function URL (no IAM). OAC signs SigV4 but doesn't include the
+    // request body for Lambda URLs, so every POST/PUT fails with a signature
+    // mismatch; unsigned avoids that. Lock this down to CloudFront-only (shared
+    // secret header or WAF) when real auth is added.
+    const fnUrl = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
 
     // --- Static site bucket (private, CloudFront OAC only) ---
     const bucket = new s3.Bucket(this, 'SiteBucket', {
@@ -106,7 +109,7 @@ export class QuestradeYnabStack extends cdk.Stack {
 
     // --- CloudFront: S3 for the SPA, Lambda for /api and /auth (same origin) ---
     const apiBehavior: cloudfront.BehaviorOptions = {
-      origin: origins.FunctionUrlOrigin.withOriginAccessControl(fnUrl),
+      origin: new origins.FunctionUrlOrigin(fnUrl),
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
       cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -125,11 +128,9 @@ export class QuestradeYnabStack extends cdk.Stack {
       domainNames: [props.domainName],
       certificate: cert,
       defaultRootObject: 'index.html',
-      // SPA safety net (the app uses HashRouter, so rarely needed).
-      errorResponses: [
-        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
-        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },
-      ],
+      // No SPA error-response fallback: the app uses HashRouter (only "/" is ever
+      // requested), and a distribution-wide 403/404 -> index.html rule would
+      // wrongly turn API/auth error responses into HTML.
     });
 
     // --- Publish the built SPA and invalidate the cache on deploy ---

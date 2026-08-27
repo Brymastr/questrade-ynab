@@ -74,6 +74,10 @@ role can read only that secret.
   `SECRETS_ARN` and its execution role has `secretsmanager:GetSecretValue` on that
   secret only. No plaintext in the template or function config.
 - **Auth** is not implemented — the URL is currently ungated. Add before sharing.
+- The Lambda **Function URL is public** (`AuthType.NONE`). OAC/IAM signing was
+  dropped because it doesn't sign request bodies for Lambda URLs, breaking every
+  POST/PUT. Restrict the Function URL to CloudFront-only (shared secret header or
+  WAF) when adding auth.
 - **Scheduled sync** is not deployed (no EventBridge). Manual sync only for now.
 - The DynamoDB table and S3 bucket use `RETAIN` removal policy so data/assets
   survive a stack delete.
