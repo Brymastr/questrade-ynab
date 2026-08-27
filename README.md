@@ -1,6 +1,13 @@
-# Questrade-YNAB CLI
+# Questrade → YNAB
 
-A Go CLI application to fetch investment account balances from Questrade and update corresponding accounts in YNAB (You Need A Budget).
+Sync investment account balances from Questrade into YNAB (You Need A Budget).
+Runs three ways from the same codebase:
+
+- **CLI** — the original command-line tool (`auth`, `mapping`, `sync`).
+- **Web app (local)** — a Go API + React UI you run with `make dev`.
+- **Web app (AWS)** — the same app deployed serverlessly (Lambda + CloudFront + DynamoDB).
+
+See [Web app](#web-app) and [Deploy to AWS](#deploy-to-aws) below; the CLI docs follow.
 
 ## Features
 
@@ -12,6 +19,78 @@ A Go CLI application to fetch investment account balances from Questrade and upd
 - Dry run mode to see what would be updated without making changes
 - Approval step with detailed change information
 - Lists and saves all fetched accounts and mappings to JSON files for lookup
+
+## Web app
+
+The project also runs as a web app: a Go HTTP API (chi) plus a React/Vite
+frontend. You connect Questrade (paste a refresh token — Questrade personal apps
+don't support interactive OAuth), connect YNAB (OAuth), map accounts, preview the
+transactions a sync would create, then apply them.
+
+### Local development
+
+Requirements: Go 1.25+, Node 18+.
+
+1. Configure credentials:
+   ```sh
+   cp .env.example .env
+   # set QUESTRADE_CLIENT_ID/SECRET and YNAB_CLIENT_ID/SECRET
+   ```
+   Register the YNAB redirect URI `http://localhost:5173/auth/ynab/callback` in
+   your YNAB app at https://app.ynab.com/settings/developer.
+2. Install frontend deps and run both servers:
+   ```sh
+   make install
+   make dev     # backend :8080 (live-reload via air) + frontend :5173
+   ```
+3. Open http://localhost:5173.
+
+Local runs use SQLite at `./data/app.db` — no external services needed.
+
+## Deploy to AWS
+
+The web app deploys serverlessly: a Go **Lambda** (arm64) behind a **CloudFront**
+distribution, with the SPA on **S3**, data in **DynamoDB**, and credentials in
+**Secrets Manager**. Infrastructure is AWS CDK in [`infra/`](infra/README.md).
+
+Each environment (`dev`, `prod`, …) is a **separate stack** (`QuestradeYnab-<env>`)
+with its own domain, table, and secret — selected with `APP_ENV` (default `dev`).
+
+### Prerequisites
+
+- AWS CLI configured (`aws sts get-caller-identity`) and an existing Route53 hosted zone.
+- One-time per account:
+  ```sh
+  cd infra && npm install && npx cdk bootstrap aws://<account-id>/us-east-1 && cd ..
+  ```
+
+### Configure an environment
+
+```sh
+cp infra/.env.example infra/.env.dev    # set DOMAIN_NAME, HOSTED_ZONE_NAME
+```
+
+Precedence: shell env > `infra/.env.<env>` > `infra/.env` (shared defaults).
+
+### Deploy (backend + frontend, one command)
+
+```sh
+make deploy               # dev
+APP_ENV=prod make deploy  # prod, once infra/.env.prod exists
+```
+
+`make deploy` cross-compiles the arm64 Lambda, builds the SPA, then runs
+`cdk deploy` — which ships the Lambda **and** uploads `web/dist` to S3 and
+invalidates CloudFront. First deploy takes ~15–25 min (CloudFront + ACM).
+
+### After the first deploy
+
+1. Fill the four OAuth values into the `questrade-ynab/<env>` Secrets Manager
+   secret (`JWT_SECRET` is auto-generated).
+2. Register `https://<your-domain>/auth/ynab/callback` in your YNAB app.
+3. Open `https://<your-domain>` and connect.
+
+Full detail (secrets, DNS, teardown) is in [`infra/README.md`](infra/README.md).
 
 ## Commands
 
@@ -106,7 +185,7 @@ MIT
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - A Questrade account with API access enabled
 - A YNAB account with a personal access token
 

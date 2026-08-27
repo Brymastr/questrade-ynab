@@ -1,0 +1,12 @@
+node_modules/
+cdk.out/
+assets/
+# Cached context lookups include the AWS account id + hosted zone — keep local.
+cdk.context.json
+.env
+.env.*
+!.env.example
+*.js
+*.d.ts
+!jest.config.js
+.cdk.staging/

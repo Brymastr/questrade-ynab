@@ -11,7 +11,7 @@ import (
 	appsync "github.com/brymastr/questrade-ynab/internal/sync"
 )
 
-func handleRunSync(store *db.Store) http.HandlerFunc {
+func handleRunSync(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 
@@ -81,7 +81,7 @@ func handleRunSync(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleGetSchedule(store *db.Store) http.HandlerFunc {
+func handleGetSchedule(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		sc, err := store.GetSchedule(userID)
@@ -93,7 +93,7 @@ func handleGetSchedule(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handlePutSchedule(store *db.Store, sched ScheduleManager) http.HandlerFunc {
+func handlePutSchedule(store db.Store, sched ScheduleManager) http.HandlerFunc {
 	type scheduleInput struct {
 		CronExpression string `json:"cron_expression"`
 		Enabled        bool   `json:"enabled"`
@@ -133,7 +133,7 @@ func handlePutSchedule(store *db.Store, sched ScheduleManager) http.HandlerFunc 
 	}
 }
 
-func handleGetSyncHistory(store *db.Store) http.HandlerFunc {
+func handleGetSyncHistory(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		limit := 50

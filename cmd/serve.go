@@ -17,16 +17,7 @@ var serveCmd = &cobra.Command{
 	Short: "Start the web server",
 	Long:  "Start the HTTP API server and background sync scheduler.",
 	Run: func(cmd *cobra.Command, args []string) {
-		dbPath := os.Getenv("DATABASE_PATH")
-		if dbPath == "" {
-			dbPath = "./data/app.db"
-		}
-
-		if err := os.MkdirAll("./data", 0700); err != nil {
-			log.Fatalf("create data dir: %v", err)
-		}
-
-		store, err := db.Open(dbPath)
+		store, err := db.New(cmd.Context())
 		if err != nil {
 			log.Fatalf("open db: %v", err)
 		}

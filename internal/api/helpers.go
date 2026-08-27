@@ -25,7 +25,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // questradeClient builds a Questrade client from stored tokens, refreshing if the
 // token looks locally expired, and persists rotated tokens back to the DB.
-func questradeClient(store *db.Store, userID string) (*questrade.Client, error) {
+func questradeClient(store db.Store, userID string) (*questrade.Client, error) {
 	tok, err := store.GetToken(userID, "questrade")
 	if err != nil || tok == nil {
 		return nil, fmt.Errorf("questrade not connected")
@@ -40,7 +40,7 @@ func questradeClient(store *db.Store, userID string) (*questrade.Client, error) 
 
 // refreshQuestradeToken exchanges the given refresh token for a new access token,
 // persists the rotated tokens, and returns a client using them.
-func refreshQuestradeToken(store *db.Store, userID, refreshToken string) (*questrade.Client, error) {
+func refreshQuestradeToken(store db.Store, userID, refreshToken string) (*questrade.Client, error) {
 	res, err := auth.RefreshQuestradeToken(refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("questrade token refresh: %w", err)
@@ -59,7 +59,7 @@ func refreshQuestradeToken(store *db.Store, userID, refreshToken string) (*quest
 // withQuestradeClient runs fn with a Questrade client. If Questrade rejects the
 // access token with a 401 (which a purely local expiry check can't detect), it
 // forces a token refresh and retries fn once.
-func withQuestradeClient(store *db.Store, userID string, fn func(*questrade.Client) error) error {
+func withQuestradeClient(store db.Store, userID string, fn func(*questrade.Client) error) error {
 	c, err := questradeClient(store, userID)
 	if err != nil {
 		return err
@@ -82,7 +82,7 @@ func withQuestradeClient(store *db.Store, userID string, fn func(*questrade.Clie
 }
 
 // ynabClient builds a YNAB client from stored tokens, refreshing if needed.
-func ynabClient(store *db.Store, userID, budgetID string) (*ynab.Client, error) {
+func ynabClient(store db.Store, userID, budgetID string) (*ynab.Client, error) {
 	tok, err := store.GetToken(userID, "ynab")
 	if err != nil || tok == nil {
 		return nil, fmt.Errorf("ynab not connected")
@@ -106,6 +106,6 @@ func ynabClient(store *db.Store, userID, budgetID string) (*ynab.Client, error) 
 }
 
 // ynabClientForBudgets builds a budget-agnostic YNAB client.
-func ynabClientForBudgets(store *db.Store, userID string) (*ynab.Client, error) {
+func ynabClientForBudgets(store db.Store, userID string) (*ynab.Client, error) {
 	return ynabClient(store, userID, "")
 }

@@ -1,4 +1,4 @@
-.PHONY: help dev backend frontend install build build-backend build-frontend clean
+.PHONY: help dev backend frontend install build build-backend build-frontend build-lambda deploy clean
 
 # air (Go live reload) — referenced by absolute path so it works even when
 # $(go env GOPATH)/bin isn't on PATH.
@@ -11,8 +11,10 @@ help:
 	@echo "  make backend   - run the Go API server + scheduler (live reload via air)"
 	@echo "  make frontend  - run the Vite dev server"
 	@echo "  make install   - install frontend npm dependencies"
-	@echo "  make build     - build backend binary and frontend bundle"
-	@echo "  make clean     - remove build artifacts"
+	@echo "  make build       - build backend binary and frontend bundle"
+	@echo "  make build-lambda- cross-compile the arm64 Lambda bootstrap (infra/assets)"
+	@echo "  make deploy      - build artifacts + cdk deploy to AWS"
+	@echo "  make clean       - remove build artifacts"
 
 # --- Development -----------------------------------------------------------
 
@@ -48,7 +50,19 @@ build-backend:
 build-frontend:
 	cd web && npm run build
 
+# --- Deploy (AWS Lambda + CloudFront via CDK) ------------------------------
+
+# Cross-compile the Go binary as the Lambda custom-runtime entrypoint (arm64).
+# modernc/sqlite is pure Go, so CGO stays disabled.
+build-lambda:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o infra/assets/bootstrap .
+
+# Build both artifacts then deploy the CDK stack. Requires DOMAIN_NAME,
+# HOSTED_ZONE_NAME and the OAuth secrets exported (see infra/README.md).
+deploy: build-lambda build-frontend
+	cd infra && npx cdk deploy
+
 # --- Cleanup ---------------------------------------------------------------
 
 clean:
-	rm -rf bin tmp web/dist
+	rm -rf bin tmp web/dist infra/assets infra/cdk.out

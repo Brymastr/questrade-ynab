@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,7 +56,8 @@ CREATE TABLE IF NOT EXISTS sync_history (
 );
 `
 
-type Store struct {
+// SQLiteStore is the local, file-backed implementation of Store.
+type SQLiteStore struct {
 	db *sql.DB
 }
 
@@ -95,7 +98,14 @@ type SyncHistory struct {
 
 // --- open ---
 
-func Open(path string) (*Store, error) {
+// OpenSQLite opens (creating the parent dir and schema if needed) a file-backed
+// SQLite store. Used for local development.
+func OpenSQLite(path string) (*SQLiteStore, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("create data dir: %w", err)
+		}
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -107,16 +117,16 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	return &SQLiteStore{db: db}, nil
 }
 
-func (s *Store) Close() error {
+func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
 // --- users ---
 
-func (s *Store) CreateUser() (string, error) {
+func (s *SQLiteStore) CreateUser() (string, error) {
 	id := uuid.New().String()
 	_, err := s.db.Exec(`INSERT INTO users (id) VALUES (?)`, id)
 	if err != nil {
@@ -125,7 +135,7 @@ func (s *Store) CreateUser() (string, error) {
 	return id, nil
 }
 
-func (s *Store) UserExists(id string) (bool, error) {
+func (s *SQLiteStore) UserExists(id string) (bool, error) {
 	var count int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, id).Scan(&count)
 	return count > 0, err
@@ -133,7 +143,7 @@ func (s *Store) UserExists(id string) (bool, error) {
 
 // --- oauth tokens ---
 
-func (s *Store) UpsertToken(t OAuthToken) error {
+func (s *SQLiteStore) UpsertToken(t OAuthToken) error {
 	_, err := s.db.Exec(`
 		INSERT INTO oauth_tokens (user_id, provider, access_token, refresh_token, expires_at, api_server)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -149,7 +159,7 @@ func (s *Store) UpsertToken(t OAuthToken) error {
 	return err
 }
 
-func (s *Store) GetToken(userID, provider string) (*OAuthToken, error) {
+func (s *SQLiteStore) GetToken(userID, provider string) (*OAuthToken, error) {
 	var t OAuthToken
 	var expiresAt string
 	err := s.db.QueryRow(`
@@ -168,14 +178,14 @@ func (s *Store) GetToken(userID, provider string) (*OAuthToken, error) {
 	return &t, nil
 }
 
-func (s *Store) HasToken(userID, provider string) (bool, error) {
+func (s *SQLiteStore) HasToken(userID, provider string) (bool, error) {
 	t, err := s.GetToken(userID, provider)
 	return t != nil, err
 }
 
 // --- mappings ---
 
-func (s *Store) GetMappings(userID string) ([]Mapping, error) {
+func (s *SQLiteStore) GetMappings(userID string) ([]Mapping, error) {
 	rows, err := s.db.Query(`
 		SELECT id, user_id, questrade_account_number, ynab_budget_id, ynab_account_id
 		FROM mappings WHERE user_id = ?
@@ -196,7 +206,7 @@ func (s *Store) GetMappings(userID string) ([]Mapping, error) {
 }
 
 // ReplaceMappings deletes all mappings for the user and inserts new ones atomically.
-func (s *Store) ReplaceMappings(userID string, mappings []Mapping) error {
+func (s *SQLiteStore) ReplaceMappings(userID string, mappings []Mapping) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -218,14 +228,14 @@ func (s *Store) ReplaceMappings(userID string, mappings []Mapping) error {
 	return tx.Commit()
 }
 
-func (s *Store) DeleteMapping(userID, mappingID string) error {
+func (s *SQLiteStore) DeleteMapping(userID, mappingID string) error {
 	_, err := s.db.Exec(`DELETE FROM mappings WHERE id = ? AND user_id = ?`, mappingID, userID)
 	return err
 }
 
 // --- sync schedule ---
 
-func (s *Store) GetSchedule(userID string) (*SyncSchedule, error) {
+func (s *SQLiteStore) GetSchedule(userID string) (*SyncSchedule, error) {
 	var sc SyncSchedule
 	var nextRunAt sql.NullString
 	err := s.db.QueryRow(`
@@ -245,7 +255,7 @@ func (s *Store) GetSchedule(userID string) (*SyncSchedule, error) {
 	return &sc, nil
 }
 
-func (s *Store) UpsertSchedule(sc SyncSchedule) error {
+func (s *SQLiteStore) UpsertSchedule(sc SyncSchedule) error {
 	var nextRunAt *string
 	if sc.NextRunAt != nil {
 		s := sc.NextRunAt.UTC().Format(time.RFC3339)
@@ -266,7 +276,7 @@ func (s *Store) UpsertSchedule(sc SyncSchedule) error {
 	return err
 }
 
-func (s *Store) GetAllEnabledSchedules() ([]SyncSchedule, error) {
+func (s *SQLiteStore) GetAllEnabledSchedules() ([]SyncSchedule, error) {
 	rows, err := s.db.Query(`
 		SELECT user_id, cron_expression, enabled, next_run_at
 		FROM sync_schedules WHERE enabled = 1
@@ -293,7 +303,7 @@ func (s *Store) GetAllEnabledSchedules() ([]SyncSchedule, error) {
 
 // --- sync history ---
 
-func (s *Store) CreateSyncHistory(h SyncHistory) error {
+func (s *SQLiteStore) CreateSyncHistory(h SyncHistory) error {
 	id := uuid.New().String()
 	_, err := s.db.Exec(`
 		INSERT INTO sync_history (id, user_id, ran_at, status, accounts_synced, detail)
@@ -302,7 +312,7 @@ func (s *Store) CreateSyncHistory(h SyncHistory) error {
 	return err
 }
 
-func (s *Store) GetSyncHistory(userID string, limit int) ([]SyncHistory, error) {
+func (s *SQLiteStore) GetSyncHistory(userID string, limit int) ([]SyncHistory, error) {
 	rows, err := s.db.Query(`
 		SELECT id, user_id, ran_at, status, accounts_synced, detail
 		FROM sync_history WHERE user_id = ?

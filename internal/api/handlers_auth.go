@@ -14,7 +14,7 @@ import (
 // for an access token. Questrade personal apps do not support the interactive
 // OAuth authorize/redirect flow, so the user pastes the refresh token issued by
 // the Questrade App Hub instead.
-func handleQuestradeConnect(store *db.Store) http.HandlerFunc {
+func handleQuestradeConnect(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			RefreshToken string `json:"refresh_token"`
@@ -70,7 +70,7 @@ func handleQuestradeConnect(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleYNABLogin(store *db.Store) http.HandlerFunc {
+func handleYNABLogin(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Must already be authenticated (Questrade connected first)
 		if _, err := auth.GetSession(r); err != nil {
@@ -82,7 +82,7 @@ func handleYNABLogin(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleYNABCallback(store *db.Store) http.HandlerFunc {
+func handleYNABCallback(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := auth.GetSession(r)
 		if err != nil {
@@ -123,7 +123,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
-func handleMe(store *db.Store) http.HandlerFunc {
+func handleMe(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		hasQT, _ := store.HasToken(userID, "questrade")

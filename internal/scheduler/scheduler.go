@@ -15,11 +15,11 @@ import (
 // Scheduler manages per-user cron jobs that trigger account syncs.
 type Scheduler struct {
 	cron    *cron.Cron
-	store   *db.Store
+	store   db.Store
 	entries map[string]cron.EntryID // userID → cron entry
 }
 
-func New(store *db.Store) *Scheduler {
+func New(store db.Store) *Scheduler {
 	return &Scheduler{
 		cron:    cron.New(),
 		store:   store,

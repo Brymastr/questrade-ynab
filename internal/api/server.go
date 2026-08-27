@@ -17,7 +17,7 @@ type ScheduleManager interface {
 	Deregister(userID string)
 }
 
-func NewRouter(store *db.Store, sched ScheduleManager) http.Handler {
+func NewRouter(store db.Store, sched ScheduleManager) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)

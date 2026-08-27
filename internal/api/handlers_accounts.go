@@ -7,7 +7,7 @@ import (
 	"github.com/brymastr/questrade-ynab/internal/questrade"
 )
 
-func handleQuestradeAccounts(store *db.Store) http.HandlerFunc {
+func handleQuestradeAccounts(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 
@@ -46,7 +46,7 @@ func handleQuestradeAccounts(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleYNABBudgets(store *db.Store) http.HandlerFunc {
+func handleYNABBudgets(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		yc, err := ynabClientForBudgets(store, userID)
@@ -64,7 +64,7 @@ func handleYNABBudgets(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleYNABAccounts(store *db.Store) http.HandlerFunc {
+func handleYNABAccounts(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		budgetID := r.URL.Query().Get("budget_id")

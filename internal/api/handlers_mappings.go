@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func handleGetMappings(store *db.Store) http.HandlerFunc {
+func handleGetMappings(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		mappings, err := store.GetMappings(userID)
@@ -23,7 +23,7 @@ func handleGetMappings(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handlePutMappings(store *db.Store) http.HandlerFunc {
+func handlePutMappings(store db.Store) http.HandlerFunc {
 	type mappingInput struct {
 		QuestradeAccountNumber string `json:"questrade_account_number"`
 		YNABBudgetID           string `json:"ynab_budget_id"`
@@ -62,7 +62,7 @@ func handlePutMappings(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleDeleteMapping(store *db.Store) http.HandlerFunc {
+func handleDeleteMapping(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
 		mappingID := chi.URLParam(r, "id")
