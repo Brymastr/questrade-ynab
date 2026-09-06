@@ -1,5 +1,10 @@
 import { api } from '../api/client'
 import QuestradeConnect from '../components/QuestradeConnect'
+import Badge from '../components/ui/Badge'
+import Card from '../components/ui/Card'
+import PageShell from '../components/ui/PageShell'
+import StatusDot from '../components/ui/StatusDot'
+import { ArrowRight, Check } from '../components/ui/icons'
 import type { User } from '../types'
 
 interface Props {
@@ -12,34 +17,38 @@ export default function Connect({ user, onConnected }: Props) {
     api.me().then(onConnected).catch(() => {})
   }
 
+  const both = user.questrade_connected && user.ynab_connected
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-10 shadow-lg">
-        <h1 className="mb-6 text-2xl font-bold text-gray-900">Connect your accounts</h1>
+    <PageShell variant="centered" maxWidth="max-w-sm">
+      <p className="mb-6 font-mono text-xs text-fg-faint">questrade → ynab</p>
 
-        <div className="mb-6 space-y-3">
-          <QuestradeConnect
-            connected={user.questrade_connected}
-            onConnected={onConnected}
-          />
-          <ConnectRow
-            label="YNAB"
-            connected={user.ynab_connected}
-            href="/auth/ynab"
-            disabled={!user.questrade_connected}
-          />
-        </div>
+      <h1 className="text-2xl font-semibold tracking-tight text-fg">Connect your accounts</h1>
+      <p className="mt-2 text-sm text-fg-muted">
+        Both connections are needed before balances can sync.
+      </p>
 
-        {user.questrade_connected && user.ynab_connected && (
-          <button
-            onClick={refresh}
-            className="w-full rounded-lg bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-700"
-          >
-            Continue to setup mappings →
-          </button>
-        )}
-      </div>
-    </div>
+      <Card className="mt-6 space-y-3">
+        <QuestradeConnect connected={user.questrade_connected} onConnected={onConnected} />
+        <ConnectRow
+          label="YNAB"
+          connected={user.ynab_connected}
+          href="/auth/ynab"
+          disabled={!user.questrade_connected}
+          disabledHint="Connect Questrade first"
+        />
+      </Card>
+
+      {both && (
+        <button
+          onClick={refresh}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        >
+          Continue to mappings
+          <ArrowRight />
+        </button>
+      )}
+    </PageShell>
   )
 }
 
@@ -48,30 +57,32 @@ function ConnectRow({
   connected,
   href,
   disabled = false,
+  disabledHint,
 }: {
   label: string
   connected: boolean
   href: string
   disabled?: boolean
+  disabledHint?: string
 }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border p-4">
-      <div className="flex items-center gap-3">
-        <span
-          className={`h-3 w-3 rounded-full ${connected ? 'bg-green-500' : 'bg-gray-300'}`}
-        />
-        <span className="font-medium text-gray-800">{label}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <StatusDot on={connected} />
+        <span className="truncate text-sm font-medium text-fg">{label}</span>
       </div>
+
       {connected ? (
-        <span className="text-sm text-green-600 font-medium">Connected</span>
+        <Badge tone="success">
+          <Check className="mr-1 h-3 w-3" />
+          Connected
+        </Badge>
+      ) : disabled ? (
+        <span className="shrink-0 text-xs text-fg-faint">{disabledHint}</span>
       ) : (
         <a
-          href={disabled ? undefined : href}
-          className={`rounded px-3 py-1.5 text-sm font-medium ${
-            disabled
-              ? 'cursor-not-allowed bg-gray-100 text-gray-400'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
+          href={href}
+          className="shrink-0 rounded-lg border bg-surface px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           Connect
         </a>

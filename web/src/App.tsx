@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { api } from './api/client'
+import Spinner from './components/ui/Spinner'
 import Connect from './pages/Connect'
 import Dashboard from './pages/Dashboard'
 import Landing from './pages/Landing'
@@ -16,8 +17,8 @@ export default function App() {
 
   if (user === undefined) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="flex h-screen items-center justify-center bg-bg text-fg-faint">
+        <Spinner className="h-6 w-6" />
       </div>
     )
   }

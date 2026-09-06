@@ -30,13 +30,6 @@ export interface Mapping {
   ynab_account_id: string
 }
 
-export interface SyncSchedule {
-  user_id: string
-  cron_expression: string
-  enabled: boolean
-  next_run_at: string | null
-}
-
 export interface SyncResult {
   account_results: AccountResult[]
   accounts_synced: number

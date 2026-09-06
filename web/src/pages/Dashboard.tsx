@@ -1,26 +1,22 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import DeltaRow from '../components/DeltaRow'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import EmptyState from '../components/ui/EmptyState'
+import Section from '../components/ui/Section'
+import StatusDot from '../components/ui/StatusDot'
+import { ArrowRight, ChevronRight } from '../components/ui/icons'
 import type {
   AccountResult,
   Mapping,
   QuestradeAccount,
   SyncHistory,
   SyncResult,
-  SyncSchedule,
   User,
   YNABAccount,
 } from '../types'
-
-// Hidden for now: automatic scheduling requires the backend to run outside the
-// browser. Flip to true to re-enable the schedule UI.
-const SHOW_SCHEDULE = false
-
-const PRESET_SCHEDULES = [
-  { label: 'Hourly', cron: '0 * * * *' },
-  { label: 'Daily at 9 AM', cron: '0 9 * * *' },
-  { label: 'Daily at 6 PM', cron: '0 18 * * *' },
-  { label: 'Weekly (Mon 9 AM)', cron: '0 9 * * 1' },
-]
 
 interface Props {
   user: User
@@ -31,27 +27,19 @@ export default function Dashboard({ user, onLogout }: Props) {
   const [mappings, setMappings] = useState<Mapping[]>([])
   const [qtByNumber, setQtByNumber] = useState<Record<string, QuestradeAccount>>({})
   const [ynabByKey, setYnabByKey] = useState<Record<string, YNABAccount>>({})
-  const [schedule, setSchedule] = useState<SyncSchedule | null>(null)
   const [history, setHistory] = useState<SyncHistory[]>([])
-  const [syncing, setSyncing] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [preview, setPreview] = useState<SyncResult | null>(null)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [syncError, setSyncError] = useState('')
-  const [scheduleError, setScheduleError] = useState('')
-  const [cronInput, setCronInput] = useState('')
-  const [scheduleEnabled, setScheduleEnabled] = useState(false)
 
   useEffect(() => {
-    Promise.all([api.getMappings(), api.getSchedule(), api.getSyncHistory()]).then(
-      ([m, sc, h]) => {
-        setMappings(m)
-        setSchedule(sc)
-        setHistory(h)
-        setCronInput(sc.cron_expression)
-        setScheduleEnabled(sc.enabled)
-        resolveAccountNames(m)
-      },
-    )
+    Promise.all([api.getMappings(), api.getSyncHistory()]).then(([m, h]) => {
+      setMappings(m)
+      setHistory(h)
+      resolveAccountNames(m)
+    })
   }, [])
 
   // Mappings only store IDs/numbers, so resolve friendly account names from the
@@ -75,7 +63,7 @@ export default function Dashboard({ user, onLogout }: Props) {
 
   // Step 1: dry-run to show what would be created.
   const previewSync = async () => {
-    setSyncing(true)
+    setPreviewing(true)
     setSyncError('')
     setSyncResult(null)
     try {
@@ -84,13 +72,13 @@ export default function Dashboard({ user, onLogout }: Props) {
     } catch (e: any) {
       setSyncError(e.message)
     } finally {
-      setSyncing(false)
+      setPreviewing(false)
     }
   }
 
   // Step 2: actually create the transactions.
   const confirmSync = async () => {
-    setSyncing(true)
+    setConfirming(true)
     setSyncError('')
     try {
       const result = await api.runSync(false)
@@ -101,7 +89,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     } catch (e: any) {
       setSyncError(e.message)
     } finally {
-      setSyncing(false)
+      setConfirming(false)
     }
   }
 
@@ -110,214 +98,149 @@ export default function Dashboard({ user, onLogout }: Props) {
     setSyncError('')
   }
 
-  const saveSchedule = async () => {
-    setScheduleError('')
-    try {
-      const sc = await api.putSchedule({ cron_expression: cronInput, enabled: scheduleEnabled })
-      setSchedule(sc)
-    } catch (e: any) {
-      setScheduleError(e.message)
-    }
-  }
-
   const logout = async () => {
     await api.logout()
     onLogout()
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b bg-white px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Questrade → YNAB</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-500">
-            QT {user.questrade_connected ? '✓' : '✗'} · YNAB {user.ynab_connected ? '✓' : '✗'}
-          </span>
-          <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-700">
-            Logout
-          </button>
+    <div className="min-h-screen">
+      <header className="border-b bg-surface">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <h1 className="truncate text-sm font-medium text-fg">Questrade → YNAB</h1>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <ConnectionPill label="Questrade" on={user.questrade_connected} />
+            <ConnectionPill label="YNAB" on={user.ynab_connected} />
+            <Button variant="ghost" onClick={logout} className="px-2 py-1">
+              Log out
+            </Button>
+          </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
+      <div className="mx-auto max-w-3xl space-y-10 px-4 py-8 sm:px-6">
         {/* Account mappings */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Account Mappings</h2>
-            <a href="#/mappings" className="text-sm text-blue-600 hover:underline">
-              Edit mappings
+        <Section
+          title="Accounts"
+          action={
+            <a
+              href="#/mappings"
+              className="rounded text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Edit
             </a>
-          </div>
+          }
+        >
           {mappings.length === 0 ? (
-            <div className="rounded-xl bg-white shadow-sm p-6 text-center text-gray-400">
-              No mappings yet.{' '}
-              <a href="#/mappings" className="text-blue-600 hover:underline">
-                Set them up
-              </a>
-              .
-            </div>
+            <EmptyState
+              title="No accounts mapped yet."
+              action={
+                <a href="#/mappings" className="text-accent hover:underline">
+                  Set them up
+                </a>
+              }
+            />
           ) : (
-            <div className="rounded-xl bg-white shadow-sm">
-              <div className="flex items-center gap-3 border-b px-6 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                <span className="flex-1">Questrade</span>
-                <span className="shrink-0 invisible">→</span>
-                <span className="flex-1 text-right">YNAB</span>
-              </div>
+            <Card flush>
               <div className="divide-y">
                 {mappings.map((m) => {
                   const qt = qtByNumber[m.questrade_account_number]
                   const yn = ynabByKey[`${m.ynab_budget_id}:${m.ynab_account_id}`]
                   return (
-                    <div key={m.id} className="flex items-center gap-3 px-6 py-4 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-800 truncate">
+                    <div
+                      key={m.id}
+                      className="space-y-1 p-4 text-sm sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4 sm:space-y-0 sm:px-6"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-fg">
                           {qt?.type ?? `Account ${m.questrade_account_number}`}
                         </p>
-                        {qt && (
-                          <p className="font-mono text-xs text-gray-400">
-                            {m.questrade_account_number}
+                        <p className="font-mono text-xs text-fg-faint">
+                          #{m.questrade_account_number}
+                        </p>
+                      </div>
+
+                      <ArrowRight className="hidden h-4 w-4 shrink-0 text-fg-faint sm:block" />
+
+                      <div className="min-w-0 sm:text-right">
+                        {yn ? (
+                          <p className="truncate font-medium text-fg">{yn.name}</p>
+                        ) : (
+                          <p className="truncate font-mono text-xs text-fg-faint">
+                            {m.ynab_account_id}
                           </p>
                         )}
-                      </div>
-                      <span className="shrink-0 text-gray-400">→</span>
-                      <div className="min-w-0 flex-1 text-right">
-                        <p className="font-medium text-gray-800 truncate">
-                          {yn?.name ?? 'YNAB account'}
-                        </p>
-                        <p className="truncate font-mono text-xs text-gray-400">
-                          {m.ynab_account_id}
-                        </p>
                       </div>
                     </div>
                   )
                 })}
               </div>
-            </div>
+            </Card>
           )}
-        </section>
+        </Section>
 
         {/* Manual sync */}
-        <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-800">Sync now</h2>
-          <div className="rounded-xl bg-white shadow-sm p-6">
+        <Section title="Sync">
+          <Card className="space-y-4">
             {!preview ? (
-              <button
+              <Button
                 onClick={previewSync}
-                disabled={syncing || mappings.length === 0}
-                className="rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                loading={previewing}
+                disabled={mappings.length === 0}
               >
-                {syncing ? 'Loading preview…' : 'Preview sync'}
-              </button>
+                {previewing ? 'Checking balances…' : 'Preview sync'}
+              </Button>
             ) : (
-              <div className="flex items-center gap-3">
-                <button
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
                   onClick={confirmSync}
-                  disabled={syncing || preview.accounts_synced === 0}
-                  className="rounded-lg bg-green-600 px-6 py-2.5 font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                  loading={confirming}
+                  disabled={preview.accounts_synced === 0}
                 >
-                  {syncing
+                  {confirming
                     ? 'Syncing…'
                     : preview.accounts_synced === 0
                       ? 'Nothing to sync'
                       : `Confirm sync (${preview.accounts_synced})`}
-                </button>
-                <button
-                  onClick={cancelPreview}
-                  disabled={syncing}
-                  className="rounded-lg px-4 py-2.5 text-sm font-medium text-gray-500 hover:text-gray-800 disabled:opacity-50"
-                >
+                </Button>
+                <Button variant="ghost" onClick={cancelPreview} disabled={confirming}>
                   Cancel
-                </button>
+                </Button>
               </div>
             )}
 
-            {syncError && <p className="mt-3 text-sm text-red-600">{syncError}</p>}
+            {syncError && <p className="text-sm text-neg">{syncError}</p>}
 
             {preview && <SyncDetails result={preview} preview />}
             {syncResult && <SyncDetails result={syncResult} />}
-          </div>
-        </section>
-
-        {/* Schedule */}
-        {SHOW_SCHEDULE && (
-        <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-800">Sync schedule</h2>
-          <div className="rounded-xl bg-white shadow-sm p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="enabled"
-                checked={scheduleEnabled}
-                onChange={(e) => setScheduleEnabled(e.target.checked)}
-                className="h-4 w-4"
-              />
-              <label htmlFor="enabled" className="text-sm font-medium text-gray-700">
-                Enable automatic syncing
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {PRESET_SCHEDULES.map((p) => (
-                <button
-                  key={p.cron}
-                  onClick={() => setCronInput(p.cron)}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-                    cronInput === p.cron
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-400'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">Custom cron expression</label>
-              <input
-                type="text"
-                value={cronInput}
-                onChange={(e) => setCronInput(e.target.value)}
-                placeholder="0 9 * * *"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm"
-              />
-            </div>
-
-            {schedule?.next_run_at && scheduleEnabled && (
-              <p className="text-xs text-gray-400">
-                Next run: {new Date(schedule.next_run_at).toLocaleString()}
-              </p>
-            )}
-
-            {scheduleError && <p className="text-sm text-red-600">{scheduleError}</p>}
-
-            <button
-              onClick={saveSchedule}
-              className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-semibold text-white hover:bg-gray-700"
-            >
-              Save schedule
-            </button>
-          </div>
-        </section>
-        )}
+          </Card>
+        </Section>
 
         {/* History */}
-        <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-800">Sync history</h2>
+        <Section title="History">
           {history.length === 0 ? (
-            <div className="rounded-xl bg-white shadow-sm p-6 text-center text-gray-400">
-              No syncs yet.
-            </div>
+            <EmptyState title="No syncs yet." />
           ) : (
-            <div className="rounded-xl bg-white shadow-sm divide-y text-sm">
-              {history.map((h) => (
-                <HistoryRow key={h.id} h={h} />
-              ))}
-            </div>
+            <Card flush>
+              <div className="divide-y">
+                {history.map((h) => (
+                  <HistoryRow key={h.id} h={h} />
+                ))}
+              </div>
+            </Card>
           )}
-        </section>
+        </Section>
       </div>
     </div>
+  )
+}
+
+function ConnectionPill({ label, on }: { label: string; on: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5" title={`${label}: ${on ? 'connected' : 'not connected'}`}>
+      <StatusDot on={on} />
+      <span className="hidden text-xs text-fg-muted sm:inline">{label}</span>
+    </span>
   )
 }
 
@@ -329,8 +252,8 @@ function SyncDetails({ result, preview = false }: { result: SyncResult; preview?
     : result.account_results
 
   return (
-    <div className="mt-4">
-      <p className="mb-2 text-sm font-medium text-gray-700">
+    <div className="space-y-2">
+      <p className="text-sm text-fg-muted">
         {preview
           ? result.accounts_synced === 0
             ? 'All accounts are already up to date — no transactions needed.'
@@ -339,23 +262,13 @@ function SyncDetails({ result, preview = false }: { result: SyncResult; preview?
         {result.errors > 0 && `, ${result.errors} error(s)`}
       </p>
       {rows.length > 0 && (
-      <div className="rounded-lg border divide-y text-sm">
-        {rows.map((ar, i) => (
-          <div key={i} className="flex items-center justify-between px-4 py-2">
-            <span className="text-gray-700">
-              {ar.questrade_type} {ar.questrade_number} → {ar.ynab_name}
-            </span>
-            {ar.error ? (
-              <span className="text-red-500">{ar.error}</span>
-            ) : (
-              <span className={ar.delta >= 0 ? 'text-green-600' : 'text-red-500'}>
-                {ar.delta >= 0 ? '+' : ''}
-                {ar.delta.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })}
-              </span>
-            )}
+        <div className="rounded-lg border">
+          <div className="divide-y">
+            {rows.map((ar, i) => (
+              <DeltaRow key={i} result={ar} />
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
       )}
     </div>
   )
@@ -374,6 +287,12 @@ function formatLocal(s: string): string {
   return `${date} ${time}${tz ? ` ${tz}` : ''}`
 }
 
+const historyTone = {
+  success: 'success',
+  partial: 'warning',
+  error: 'danger',
+} as const
+
 function HistoryRow({ h }: { h: SyncHistory }) {
   const [open, setOpen] = useState(false)
 
@@ -390,64 +309,42 @@ function HistoryRow({ h }: { h: SyncHistory }) {
     <div>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full cursor-pointer items-center justify-between px-6 py-3 text-left hover:bg-gray-50"
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:px-6"
       >
-        <span className="flex items-center gap-2 font-mono text-gray-600">
-          <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>
-            ▸
-          </span>
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">
           {formatLocal(h.ran_at)}
         </span>
-        <span className="text-gray-500">{h.accounts_synced} account(s)</span>
-        <StatusBadge status={h.status} />
+        <span className="hidden shrink-0 text-xs text-fg-faint sm:inline">
+          {h.accounts_synced} account(s)
+        </span>
+        <Badge tone={historyTone[h.status]}>{h.status}</Badge>
       </button>
+
       <div
         className={`grid transition-all duration-200 ease-out ${
           open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
         }`}
       >
         <div className="overflow-hidden">
-          <div className="bg-gray-50 pb-3">
+          <div className="border-t bg-surface-2">
             {changed.length === 0 ? (
-              <p className="px-6 py-2 text-xs text-gray-400">No transactions were created.</p>
+              <p className="px-4 py-3 text-xs text-fg-faint sm:px-6">
+                No transactions were created.
+              </p>
             ) : (
-              changed.map((ar, i) => (
-                <div
-                  key={i}
-                  className={`flex items-center justify-between px-6 py-1.5 ${
-                    i % 2 === 1 ? 'bg-gray-100' : ''
-                  }`}
-                >
-                  <span className="text-gray-700">
-                    {ar.questrade_type} {ar.questrade_number} → {ar.ynab_name}
-                  </span>
-                  {ar.error ? (
-                    <span className="text-red-500">{ar.error}</span>
-                  ) : (
-                    <span className={ar.delta >= 0 ? 'text-green-600' : 'text-red-500'}>
-                      {ar.delta >= 0 ? '+' : ''}
-                      {ar.delta.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })}
-                    </span>
-                  )}
-                </div>
-              ))
+              <div className="divide-y">
+                {changed.map((ar, i) => (
+                  <DeltaRow key={i} result={ar} />
+                ))}
+              </div>
             )}
           </div>
         </div>
       </div>
     </div>
-  )
-}
-
-function StatusBadge({ status }: { status: SyncHistory['status'] }) {
-  const classes = {
-    success: 'bg-green-100 text-green-700',
-    partial: 'bg-yellow-100 text-yellow-700',
-    error: 'bg-red-100 text-red-700',
-  }
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${classes[status]}`}>
-      {status}
-    </span>
   )
 }

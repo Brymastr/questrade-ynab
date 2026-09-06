@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import Money from '../components/ui/Money'
+import PageShell from '../components/ui/PageShell'
+import Select from '../components/ui/Select'
+import Spinner from '../components/ui/Spinner'
+import { ArrowRight } from '../components/ui/icons'
 import type { QuestradeAccount, YNABAccount, YNABBudget } from '../types'
 
 interface Props {
@@ -11,22 +18,28 @@ interface MappingRow {
   ynabAccountId: string
 }
 
+const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
+
 export default function Mappings({ onSaved }: Props) {
   const [qtAccounts, setQtAccounts] = useState<QuestradeAccount[]>([])
   const [budgets, setBudgets] = useState<YNABBudget[]>([])
   const [selectedBudget, setSelectedBudget] = useState('')
   const [ynabAccounts, setYnabAccounts] = useState<YNABAccount[]>([])
   const [rows, setRows] = useState<MappingRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([api.questradeAccounts(), api.ynabBudgets()]).then(([qt, b]) => {
-      setQtAccounts(qt)
-      setBudgets(b)
-      if (b.length > 0) setSelectedBudget(b[0].id)
-      setRows(qt.map((a) => ({ questradeNumber: a.number, ynabAccountId: '' })))
-    })
+    Promise.all([api.questradeAccounts(), api.ynabBudgets()])
+      .then(([qt, b]) => {
+        setQtAccounts(qt)
+        setBudgets(b)
+        if (b.length > 0) setSelectedBudget(b[0].id)
+        setRows(qt.map((a) => ({ questradeNumber: a.number, ynabAccountId: '' })))
+      })
+      .catch((e: any) => setError(e.message))
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -68,71 +81,85 @@ export default function Mappings({ onSaved }: Props) {
 
   const qtAccount = (number: string) => qtAccounts.find((a) => a.number === number)
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-fg-faint">
+        <Spinner className="h-6 w-6" />
+      </div>
+    )
+  }
+
   return (
-    <div className="flex min-h-screen flex-col items-center bg-gray-50 px-4 py-12">
-      <div className="w-full max-w-2xl">
-        <h1 className="mb-2 text-2xl font-bold text-gray-900">Map your accounts</h1>
-        <p className="mb-6 text-gray-500">
-          Link each Questrade account to the YNAB tracking account you want it synced to.
+    <PageShell maxWidth="max-w-2xl" className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight text-fg sm:text-2xl">
+          Map your accounts
+        </h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Link each Questrade account to the YNAB tracking account it syncs into.
         </p>
+      </div>
 
-        {budgets.length > 1 && (
-          <div className="mb-6">
-            <label className="mb-1 block text-sm font-medium text-gray-700">YNAB Budget</label>
-            <select
-              value={selectedBudget}
-              onChange={(e) => setSelectedBudget(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              {budgets.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+      {budgets.length > 1 && (
+        <Select
+          label="YNAB budget"
+          value={selectedBudget}
+          onChange={(e) => setSelectedBudget(e.target.value)}
+        >
+          {budgets.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </Select>
+      )}
 
-        <div className="rounded-xl bg-white shadow-sm divide-y">
+      <Card flush>
+        <div className="divide-y">
           {rows.map((row) => {
             const qt = qtAccount(row.questradeNumber)
             return (
-              <div key={row.questradeNumber} className="flex items-center gap-4 px-6 py-4">
-                <div className="w-44 shrink-0">
-                  <p className="font-medium text-gray-800">{qt?.type ?? row.questradeNumber}</p>
-                  <p className="text-xs text-gray-400">#{row.questradeNumber}</p>
-                  {qt && (
-                    <p className="text-sm text-gray-500">${qt.balance.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
-                  )}
+              <div
+                key={row.questradeNumber}
+                className="space-y-3 p-4 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4 sm:space-y-0 sm:px-6"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="truncate text-sm font-medium text-fg">
+                      {qt?.type ?? `Account ${row.questradeNumber}`}
+                    </p>
+                    {qt && (
+                      <Money value={qt.balance} className="shrink-0 text-sm text-fg-muted" />
+                    )}
+                  </div>
+                  <p className="font-mono text-xs text-fg-faint">#{row.questradeNumber}</p>
                 </div>
-                <span className="text-gray-400">→</span>
-                <select
+
+                <ArrowRight className="hidden h-4 w-4 shrink-0 text-fg-faint sm:block" />
+
+                <Select
+                  aria-label={`YNAB account for ${qt?.type ?? row.questradeNumber}`}
                   value={row.ynabAccountId}
                   onChange={(e) => setYnabAccount(row.questradeNumber, e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 >
-                  <option value="">— skip —</option>
+                  <option value="">Don't sync</option>
                   {ynabAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name} (${(a.balance).toLocaleString('en-CA', { minimumFractionDigits: 2 })})
+                      {a.name} ({money(a.balance)})
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             )
           })}
         </div>
+      </Card>
 
-        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-neg">{error}</p>}
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="mt-6 w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save mappings →'}
-        </button>
-      </div>
-    </div>
+      <Button full loading={saving} onClick={save}>
+        {saving ? 'Saving…' : 'Save mappings'}
+      </Button>
+    </PageShell>
   )
 }

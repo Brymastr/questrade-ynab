@@ -1,4 +1,6 @@
 import QuestradeConnect from '../components/QuestradeConnect'
+import Card from '../components/ui/Card'
+import PageShell from '../components/ui/PageShell'
 import type { User } from '../types'
 
 interface Props {
@@ -7,17 +9,21 @@ interface Props {
 
 export default function Landing({ onConnected }: Props) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-10 shadow-lg">
-        <h1 className="mb-2 text-3xl font-bold text-gray-900">Questrade → YNAB</h1>
-        <p className="mb-8 text-gray-500">
-          Automatically sync your Questrade investment account balances into YNAB tracking accounts.
-        </p>
+    <PageShell variant="centered" maxWidth="max-w-sm">
+      <p className="mb-6 font-mono text-xs text-fg-faint">questrade → ynab</p>
+
+      <h1 className="text-2xl font-semibold tracking-tight text-fg">
+        Keep YNAB in step with Questrade
+      </h1>
+      <p className="mt-2 text-sm text-fg-muted">
+        Sync your Questrade investment balances into YNAB tracking accounts.
+      </p>
+
+      <Card className="mt-6">
         <QuestradeConnect connected={false} onConnected={onConnected} />
-        <p className="mt-4 text-center text-sm text-gray-400">
-          You'll connect YNAB next after connecting Questrade.
-        </p>
-      </div>
-    </div>
+      </Card>
+
+      <p className="mt-4 text-xs text-fg-faint">You'll connect YNAB next.</p>
+    </PageShell>
   )
 }

@@ -3,7 +3,6 @@ import type {
   QuestradeAccount,
   SyncHistory,
   SyncResult,
-  SyncSchedule,
   User,
   YNABAccount,
   YNABBudget,
@@ -44,16 +43,8 @@ export const api = {
   putMappings: (mappings: Omit<Mapping, 'id' | 'user_id'>[]) =>
     request<Mapping[]>('/api/mappings', { method: 'PUT', body: JSON.stringify(mappings) }),
 
-  deleteMapping: (id: string) =>
-    request<void>(`/api/mappings/${id}`, { method: 'DELETE' }),
-
   runSync: (dryRun = false) =>
     request<SyncResult>(`/api/sync/run${dryRun ? '?dry_run=true' : ''}`, { method: 'POST' }),
-
-  getSchedule: () => request<SyncSchedule>('/api/sync/schedule'),
-
-  putSchedule: (schedule: { cron_expression: string; enabled: boolean }) =>
-    request<SyncSchedule>('/api/sync/schedule', { method: 'PUT', body: JSON.stringify(schedule) }),
 
   getSyncHistory: (limit = 50) =>
     request<SyncHistory[]>(`/api/sync/history?limit=${limit}`),

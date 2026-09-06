@@ -1,3 +1,59 @@
+@import '@fontsource-variable/inter';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens. Every color is an RGB triple so Tailwind can apply its own
+ * alpha channel via `rgb(var(--color-x) / <alpha-value>)`. Dark mode is a
+ * variable swap under `prefers-color-scheme`, which is why no `dark:` utility
+ * ever appears in JSX.
+ */
+@layer base {
+  :root {
+    --color-bg: 250 250 250; /* zinc-50 */
+    --color-surface: 255 255 255; /* white */
+    --color-surface-2: 244 244 245; /* zinc-100 */
+    --color-line: 228 228 231; /* zinc-200 */
+
+    --color-fg: 24 24 27; /* zinc-900 */
+    --color-fg-muted: 82 82 91; /* zinc-600 */
+    --color-fg-faint: 161 161 170; /* zinc-400 */
+
+    --color-primary: 24 24 27; /* zinc-900 */
+    --color-primary-fg: 250 250 250; /* zinc-50 */
+
+    --color-accent: 79 70 229; /* indigo-600 */
+
+    --color-pos: 5 150 105; /* emerald-600 */
+    --color-neg: 220 38 38; /* red-600 */
+    --color-warn: 217 119 6; /* amber-600 */
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-bg: 9 9 11; /* zinc-950 */
+      --color-surface: 24 24 27; /* zinc-900 */
+      --color-surface-2: 39 39 42; /* zinc-800 */
+      --color-line: 39 39 42; /* zinc-800 */
+
+      --color-fg: 250 250 250; /* zinc-50 */
+      --color-fg-muted: 161 161 170; /* zinc-400 */
+      --color-fg-faint: 113 113 122; /* zinc-500 */
+
+      --color-primary: 250 250 250; /* zinc-50 */
+      --color-primary-fg: 24 24 27; /* zinc-900 */
+
+      --color-accent: 129 140 248; /* indigo-400 */
+
+      --color-pos: 52 211 153; /* emerald-400 */
+      --color-neg: 248 113 113; /* red-400 */
+      --color-warn: 251 191 36; /* amber-400 */
+    }
+  }
+
+  body {
+    @apply bg-bg text-fg antialiased;
+  }
+}
