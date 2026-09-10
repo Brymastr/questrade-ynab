@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { api } from './api/client'
 import Spinner from './components/ui/Spinner'
-import Connect from './pages/Connect'
 import Dashboard from './pages/Dashboard'
 import Landing from './pages/Landing'
 import Mappings from './pages/Mappings'
@@ -28,26 +27,11 @@ export default function App() {
       <Routes>
         <Route
           path="/"
-          element={
-            !user ? (
-              <Landing onConnected={setUser} />
-            ) : !user.ynab_connected ? (
-              <Navigate to="/connect" replace />
-            ) : (
-              <Navigate to="/dashboard" replace />
-            )
-          }
+          element={!user ? <Landing onConnected={setUser} /> : <Navigate to="/dashboard" replace />}
         />
-        <Route
-          path="/connect"
-          element={
-            !user ? (
-              <Navigate to="/" replace />
-            ) : (
-              <Connect user={user} onConnected={setUser} />
-            )
-          }
-        />
+        {/* The old connect page is folded into the dashboard's first-run
+            checklist; keep the route as a redirect for stale links. */}
+        <Route path="/connect" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
         <Route
           path="/mappings"
           element={

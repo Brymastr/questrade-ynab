@@ -1,101 +1,75 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import DeltaRow from '../components/DeltaRow'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
-import EmptyState from '../components/ui/EmptyState'
-import Section from '../components/ui/Section'
+import Money from '../components/ui/Money'
+import Spinner from '../components/ui/Spinner'
 import StatusDot from '../components/ui/StatusDot'
-import { ArrowRight, ChevronRight } from '../components/ui/icons'
-import type {
-  AccountResult,
-  Mapping,
-  QuestradeAccount,
-  SyncHistory,
-  SyncResult,
-  User,
-  YNABAccount,
-} from '../types'
+import { ArrowRight, Check, ChevronRight } from '../components/ui/icons'
+import type { AccountResult, Mapping, SyncHistory, SyncResult, User } from '../types'
 
 interface Props {
   user: User
   onLogout: () => void
 }
 
+// The drift check (a dry-run sync) fires on page load, so the screen opens
+// already knowing the answer: what drifted, by how much, and the one button
+// posts exactly that.
+type Drift =
+  | { state: 'checking' }
+  | { state: 'error'; message: string }
+  | { state: 'ready'; result: SyncResult }
+  | { state: 'posted'; count: number }
+
 export default function Dashboard({ user, onLogout }: Props) {
+  const [loaded, setLoaded] = useState(false)
   const [mappings, setMappings] = useState<Mapping[]>([])
-  const [qtByNumber, setQtByNumber] = useState<Record<string, QuestradeAccount>>({})
-  const [ynabByKey, setYnabByKey] = useState<Record<string, YNABAccount>>({})
   const [history, setHistory] = useState<SyncHistory[]>([])
-  const [previewing, setPreviewing] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [preview, setPreview] = useState<SyncResult | null>(null)
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
-  const [syncError, setSyncError] = useState('')
+  const [drift, setDrift] = useState<Drift>({ state: 'checking' })
+  const [posting, setPosting] = useState(false)
+  const [postError, setPostError] = useState('')
 
-  useEffect(() => {
-    Promise.all([api.getMappings(), api.getSyncHistory()]).then(([m, h]) => {
-      setMappings(m)
-      setHistory(h)
-      resolveAccountNames(m)
-    })
-  }, [])
-
-  // Mappings only store IDs/numbers, so resolve friendly account names from the
-  // live account endpoints. Failures degrade gracefully to showing the raw IDs.
-  const resolveAccountNames = (m: Mapping[]) => {
-    api
-      .questradeAccounts()
-      .then((accs) => setQtByNumber(Object.fromEntries(accs.map((a) => [a.number, a]))))
-      .catch(() => {})
-
-    const budgetIds = [...new Set(m.map((x) => x.ynab_budget_id))]
-    Promise.all(
-      budgetIds.map((bid) =>
-        api
-          .ynabAccounts(bid)
-          .then((accs) => accs.map((a) => [`${bid}:${a.id}`, a] as const))
-          .catch(() => [] as (readonly [string, YNABAccount])[]),
-      ),
-    ).then((lists) => setYnabByKey(Object.fromEntries(lists.flat())))
-  }
-
-  // Step 1: dry-run to show what would be created.
-  const previewSync = async () => {
-    setPreviewing(true)
-    setSyncError('')
-    setSyncResult(null)
+  const checkDrift = useCallback(async () => {
+    setDrift({ state: 'checking' })
+    setPostError('')
     try {
       const result = await api.runSync(true)
-      setPreview(result)
+      setDrift({ state: 'ready', result })
     } catch (e: any) {
-      setSyncError(e.message)
-    } finally {
-      setPreviewing(false)
+      setDrift({ state: 'error', message: e.message })
     }
-  }
+  }, [])
 
-  // Step 2: actually create the transactions.
-  const confirmSync = async () => {
-    setConfirming(true)
-    setSyncError('')
+  useEffect(() => {
+    if (!user.ynab_connected) {
+      setLoaded(true)
+      return
+    }
+    Promise.all([api.getMappings(), api.getSyncHistory()])
+      .then(([m, h]) => {
+        setMappings(m)
+        setHistory(h)
+        setLoaded(true)
+        if (m.length > 0) checkDrift()
+      })
+      .catch(() => setLoaded(true))
+  }, [user.ynab_connected, checkDrift])
+
+  const post = async () => {
+    setPosting(true)
+    setPostError('')
     try {
       const result = await api.runSync(false)
-      setSyncResult(result)
-      setPreview(null)
-      const h = await api.getSyncHistory()
-      setHistory(h)
+      setDrift({ state: 'posted', count: result.accounts_synced })
+      api.getSyncHistory().then(setHistory).catch(() => {})
     } catch (e: any) {
-      setSyncError(e.message)
+      setPostError(e.message)
     } finally {
-      setConfirming(false)
+      setPosting(false)
     }
-  }
-
-  const cancelPreview = () => {
-    setPreview(null)
-    setSyncError('')
   }
 
   const logout = async () => {
@@ -103,12 +77,16 @@ export default function Dashboard({ user, onLogout }: Props) {
     onLogout()
   }
 
+  const firstRun = !user.ynab_connected || mappings.length === 0
+
   return (
     <div className="min-h-screen">
       <header className="border-b bg-surface">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <h1 className="truncate text-sm font-medium text-fg">Questrade → YNAB</h1>
           <div className="flex items-center gap-3 sm:gap-4">
+            {/* Connection dots are desktop-only; on a phone the checklist and
+                errors carry the same information. */}
             <ConnectionPill label="Questrade" on={user.questrade_connected} />
             <ConnectionPill label="YNAB" on={user.ynab_connected} />
             <Button variant="ghost" onClick={logout} className="px-2 py-1">
@@ -118,118 +96,41 @@ export default function Dashboard({ user, onLogout }: Props) {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-10 px-4 py-8 sm:px-6">
-        {/* Account mappings */}
-        <Section
-          title="Accounts"
-          action={
-            <a
-              href="#/mappings"
-              className="rounded text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Edit
-            </a>
-          }
-        >
-          {mappings.length === 0 ? (
-            <EmptyState
-              title="No accounts mapped yet."
-              action={
-                <a href="#/mappings" className="text-accent hover:underline">
-                  Set them up
-                </a>
-              }
-            />
-          ) : (
-            <Card flush>
-              <div className="divide-y">
-                {mappings.map((m) => {
-                  const qt = qtByNumber[m.questrade_account_number]
-                  const yn = ynabByKey[`${m.ynab_budget_id}:${m.ynab_account_id}`]
-                  return (
-                    <div
-                      key={m.id}
-                      className="space-y-1 p-4 text-sm sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4 sm:space-y-0 sm:px-6"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-fg">
-                          {qt?.type ?? `Account ${m.questrade_account_number}`}
-                        </p>
-                        <p className="font-mono text-xs text-fg-faint">
-                          #{m.questrade_account_number}
-                        </p>
-                      </div>
+      <div className="mx-auto max-w-3xl space-y-12 px-4 py-10 sm:px-6 sm:py-14">
+        {!loaded ? (
+          <div className="flex justify-center py-16 text-fg-faint">
+            <Spinner className="h-6 w-6" />
+          </div>
+        ) : firstRun ? (
+          <FirstRun user={user} />
+        ) : (
+          <DriftHero
+            drift={drift}
+            posting={posting}
+            postError={postError}
+            mappingCount={mappings.length}
+            lastEntry={history[0]}
+            onPost={post}
+            onRecheck={checkDrift}
+          />
+        )}
 
-                      <ArrowRight className="hidden h-4 w-4 shrink-0 text-fg-faint sm:block" />
-
-                      <div className="min-w-0 sm:text-right">
-                        {yn ? (
-                          <p className="truncate font-medium text-fg">{yn.name}</p>
-                        ) : (
-                          <p className="truncate font-mono text-xs text-fg-faint">
-                            {m.ynab_account_id}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
-          )}
-        </Section>
-
-        {/* Manual sync */}
-        <Section title="Sync">
-          <Card className="space-y-4">
-            {!preview ? (
-              <Button
-                onClick={previewSync}
-                loading={previewing}
-                disabled={mappings.length === 0}
+        {(!firstRun || history.length > 0) && loaded && (
+          <section id="ledger" className="space-y-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-faint">
+                Ledger
+              </h2>
+              <a
+                href="#/mappings"
+                className="rounded text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                {previewing ? 'Checking balances…' : 'Preview sync'}
-              </Button>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  onClick={confirmSync}
-                  loading={confirming}
-                  disabled={preview.accounts_synced === 0}
-                >
-                  {confirming
-                    ? 'Syncing…'
-                    : preview.accounts_synced === 0
-                      ? 'Nothing to sync'
-                      : `Confirm sync (${preview.accounts_synced})`}
-                </Button>
-                <Button variant="ghost" onClick={cancelPreview} disabled={confirming}>
-                  Cancel
-                </Button>
-              </div>
-            )}
-
-            {syncError && <p className="text-sm text-neg">{syncError}</p>}
-
-            {preview && <SyncDetails result={preview} preview />}
-            {syncResult && <SyncDetails result={syncResult} />}
-          </Card>
-        </Section>
-
-        {/* History */}
-        <Section title="History">
-          {history.length === 0 ? (
-            <EmptyState title="No syncs yet." />
-          ) : (
-            <Card flush>
-              <div className="divide-y">
-                {history.map((h) => (
-                  <HistoryRow key={h.id} h={h} />
-                ))}
-              </div>
-            </Card>
-          )}
-        </Section>
+                Accounts
+              </a>
+            </div>
+            <Ledger history={history} />
+          </section>
+        )}
       </div>
     </div>
   )
@@ -237,63 +138,306 @@ export default function Dashboard({ user, onLogout }: Props) {
 
 function ConnectionPill({ label, on }: { label: string; on: boolean }) {
   return (
-    <span className="flex items-center gap-1.5" title={`${label}: ${on ? 'connected' : 'not connected'}`}>
+    <span
+      className="hidden items-center gap-1.5 sm:flex"
+      title={`${label}: ${on ? 'connected' : 'not connected'}`}
+    >
       <StatusDot on={on} />
-      <span className="hidden text-xs text-fg-muted sm:inline">{label}</span>
+      <span className="text-xs text-fg-muted">{label}</span>
     </span>
   )
 }
 
-function SyncDetails({ result, preview = false }: { result: SyncResult; preview?: boolean }) {
-  // In preview, only show accounts that would actually change (or have an error);
-  // hide accounts already in sync.
-  const rows = preview
-    ? result.account_results.filter((ar) => ar.error || ar.delta !== 0)
-    : result.account_results
+/* ------------------------------- drift hero ------------------------------ */
+
+function DriftHero({
+  drift,
+  posting,
+  postError,
+  mappingCount,
+  lastEntry,
+  onPost,
+  onRecheck,
+}: {
+  drift: Drift
+  posting: boolean
+  postError: string
+  mappingCount: number
+  lastEntry?: SyncHistory
+  onPost: () => void
+  onRecheck: () => void
+}) {
+  if (drift.state === 'checking') {
+    return (
+      <HeroFrame eyebrow="Checking">
+        <div className="flex items-center justify-center gap-3 py-4 text-fg-muted">
+          <Spinner className="h-4 w-4" />
+          <span className="text-sm">Checking balances against YNAB…</span>
+        </div>
+      </HeroFrame>
+    )
+  }
+
+  if (drift.state === 'error') {
+    return (
+      <HeroFrame eyebrow="Check failed">
+        <h2 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+          Couldn't check balances
+        </h2>
+        <p className="text-sm text-neg">{drift.message}</p>
+        <Button variant="secondary" onClick={onRecheck} className="mt-2">
+          Try again
+        </Button>
+      </HeroFrame>
+    )
+  }
+
+  if (drift.state === 'posted') {
+    return (
+      <InBalance
+        eyebrow="Posted just now"
+        subline={`${drift.count} transaction${drift.count === 1 ? '' : 's'} posted to YNAB.`}
+        onRecheck={onRecheck}
+      />
+    )
+  }
+
+  const { result } = drift
+  const changed = result.account_results.filter((ar) => ar.error || ar.delta !== 0)
+
+  if (changed.length === 0) {
+    return (
+      <InBalance
+        eyebrow="Checked just now"
+        subline={`All ${mappingCount} mapped account${mappingCount === 1 ? '' : 's'} match YNAB to the cent.`}
+        onRecheck={onRecheck}
+      />
+    )
+  }
+
+  const net = changed.filter((ar) => !ar.error).reduce((sum, ar) => sum + ar.delta, 0)
+  const n = result.accounts_synced
+  const drifted = changed.length
 
   return (
-    <div className="space-y-2">
+    <HeroFrame eyebrow={lastEntry ? `Since ${entryDate(lastEntry.ran_at)}` : 'First check'}>
+      <h2 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+        {drifted} account{drifted === 1 ? ' has' : 's have'} drifted
+      </h2>
       <p className="text-sm text-fg-muted">
-        {preview
-          ? result.accounts_synced === 0
-            ? 'All accounts are already up to date — no transactions needed.'
-            : `${result.accounts_synced} transaction(s) will be created`
-          : `${result.accounts_synced} account(s) synced`}
-        {result.errors > 0 && `, ${result.errors} error(s)`}
+        Net change <Money value={net} signed colored className="font-semibold" />
       </p>
-      {rows.length > 0 && (
-        <div className="rounded-lg border">
-          <div className="divide-y">
-            {rows.map((ar, i) => (
-              <DeltaRow key={i} result={ar} />
-            ))}
-          </div>
+
+      <Card flush className="w-full max-w-xl text-left">
+        <div className="divide-y">
+          {changed.map((ar, i) => (
+            <DeltaRow key={i} result={ar} />
+          ))}
         </div>
-      )}
+      </Card>
+
+      <div className="flex flex-col items-center gap-2.5">
+        <Button
+          onClick={onPost}
+          loading={posting}
+          disabled={n === 0}
+          className="w-full sm:w-auto"
+        >
+          {posting ? 'Posting…' : `Post ${n} transaction${n === 1 ? '' : 's'} to YNAB`}
+          {!posting && <ArrowRight />}
+        </Button>
+        {postError ? (
+          <p className="text-sm text-neg">{postError}</p>
+        ) : (
+          <p className="text-xs text-fg-faint">Nothing is posted until you confirm.</p>
+        )}
+      </div>
+    </HeroFrame>
+  )
+}
+
+function HeroFrame({ eyebrow, children }: { eyebrow: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col items-center gap-4 text-center">
+      <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-faint">{eyebrow}</p>
+      {children}
+    </section>
+  )
+}
+
+function InBalance({
+  eyebrow,
+  subline,
+  onRecheck,
+}: {
+  eyebrow: string
+  subline: string
+  onRecheck: () => void
+}) {
+  return (
+    <section className="flex flex-col items-center gap-4 text-center">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-pos/10">
+        <Check className="h-5 w-5 text-pos" />
+      </span>
+      <div className="space-y-1">
+        <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-faint">{eyebrow}</p>
+        <h2 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+          Everything is in balance
+        </h2>
+        <p className="text-sm text-fg-muted">{subline}</p>
+      </div>
+      <div className="flex items-center gap-4 text-sm">
+        <a href="#ledger" className="text-accent hover:underline">
+          View ledger
+        </a>
+        <span className="text-line">·</span>
+        <button
+          onClick={onRecheck}
+          className="rounded text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Check again
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/* -------------------------------- first run ------------------------------ */
+
+function FirstRun({ user }: { user: User }) {
+  return (
+    <section className="flex flex-col items-center gap-6 text-center">
+      <div className="space-y-1">
+        <h2 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+          Two steps to your first entry
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Each finished step becomes a line in your ledger.
+        </p>
+      </div>
+
+      <Card flush className="w-full max-w-md text-left">
+        <div className="divide-y">
+          <ChecklistRow
+            n={1}
+            label="Connect Questrade"
+            done={user.questrade_connected}
+          />
+          <ChecklistRow n={2} label="Connect YNAB" done={user.ynab_connected}>
+            {!user.ynab_connected && user.questrade_connected && (
+              <a
+                href="/auth/ynab"
+                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              >
+                Connect
+              </a>
+            )}
+          </ChecklistRow>
+          <ChecklistRow n={3} label="Map your accounts" done={false} muted={!user.ynab_connected}>
+            {user.ynab_connected ? (
+              <a
+                href="#/mappings"
+                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              >
+                Map accounts
+              </a>
+            ) : (
+              <span className="shrink-0 text-xs text-fg-faint">After YNAB</span>
+            )}
+          </ChecklistRow>
+        </div>
+      </Card>
+
+      <div className="flex flex-col items-center gap-1">
+        <span className="h-6 w-0.5 bg-line" aria-hidden="true" />
+        <p className="text-xs text-fg-faint">Your ledger starts here.</p>
+      </div>
+    </section>
+  )
+}
+
+function ChecklistRow({
+  n,
+  label,
+  done,
+  muted = false,
+  children,
+}: {
+  n: number
+  label: string
+  done: boolean
+  muted?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex min-h-[60px] items-center justify-between gap-3 px-5 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        {done ? (
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-pos/10">
+            <Check className="h-3.5 w-3.5 text-pos" />
+          </span>
+        ) : (
+          <span
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
+              muted ? 'text-fg-faint' : 'border-fg-faint text-fg-muted'
+            }`}
+          >
+            {n}
+          </span>
+        )}
+        <span className={`truncate text-sm font-medium ${muted ? 'text-fg-faint' : 'text-fg'}`}>
+          {label}
+        </span>
+      </div>
+      {done ? <span className="shrink-0 text-xs font-medium text-pos">Done</span> : children}
     </div>
   )
 }
 
-// Local time as "YYYY-MM-DD HH:mm TZ", e.g. 2026-08-26 17:05 PDT.
+/* --------------------------------- ledger -------------------------------- */
+
+const entryTone = { success: 'success', partial: 'warning', error: 'danger' } as const
+const entryLabel = { success: 'balanced', partial: 'partial', error: 'error' } as const
+
+function Ledger({ history }: { history: SyncHistory[] }) {
+  return (
+    <div className="relative flex flex-col gap-3.5 pl-6">
+      <span
+        aria-hidden="true"
+        className="absolute bottom-2 left-[5px] top-2 w-0.5 bg-line"
+      />
+      {history.length === 0 && (
+        <p className="text-sm text-fg-faint">No entries yet.</p>
+      )}
+      {history.map((h) => (
+        <LedgerEntry key={h.id} h={h} />
+      ))}
+      <div className="relative pt-1">
+        <span
+          aria-hidden="true"
+          className="absolute -left-[23px] top-2 h-2.5 w-2.5 rounded-full border-2 border-fg-faint bg-surface"
+        />
+        <p className="text-xs text-fg-faint">Your ledger starts here.</p>
+      </div>
+    </div>
+  )
+}
+
+// Local time as "YYYY-MM-DD HH:mm", plus a date-only variant for the hero.
 function formatLocal(s: string): string {
   const d = new Date(s)
   if (isNaN(d.getTime())) return s
   const pad = (n: number) => String(n).padStart(2, '0')
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  const tz = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
-    .formatToParts(d)
-    .find((p) => p.type === 'timeZoneName')?.value
-  return `${date} ${time}${tz ? ` ${tz}` : ''}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const historyTone = {
-  success: 'success',
-  partial: 'warning',
-  error: 'danger',
-} as const
+function entryDate(s: string): string {
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return s
+  return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+}
 
-function HistoryRow({ h }: { h: SyncHistory }) {
+function LedgerEntry({ h }: { h: SyncHistory }) {
   const [open, setOpen] = useState(false)
 
   let results: AccountResult[] = []
@@ -302,49 +446,64 @@ function HistoryRow({ h }: { h: SyncHistory }) {
   } catch {
     results = []
   }
-  // Only accounts that produced a transaction (or errored) are worth listing.
-  const changed = results.filter((ar) => ar.error || ar.delta !== 0)
+  const postings = results.filter((ar) => ar.error || ar.delta !== 0)
+  const net = postings.filter((ar) => !ar.error).reduce((sum, ar) => sum + ar.delta, 0)
+
+  const dotBorder =
+    h.status === 'success'
+      ? 'border-pos'
+      : h.status === 'partial'
+        ? 'border-warn'
+        : 'border-neg'
 
   return (
-    <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:px-6"
-      >
-        <ChevronRight
-          className={`h-4 w-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">
-          {formatLocal(h.ran_at)}
-        </span>
-        <span className="hidden shrink-0 text-xs text-fg-faint sm:inline">
-          {h.accounts_synced} account(s)
-        </span>
-        <Badge tone={historyTone[h.status]}>{h.status}</Badge>
-      </button>
+    <div className="relative">
+      <span
+        aria-hidden="true"
+        className={`absolute -left-6 top-4 h-3 w-3 rounded-full border-2 bg-surface ${dotBorder}`}
+      />
+      <Card flush>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:px-5"
+        >
+          <ChevronRight
+            className={`h-4 w-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`}
+          />
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">
+            {formatLocal(h.ran_at)}
+          </span>
+          <span className="hidden shrink-0 text-xs text-fg-faint sm:inline">
+            {postings.length || h.accounts_synced} posting
+            {(postings.length || h.accounts_synced) === 1 ? '' : 's'}
+          </span>
+          <Money value={net} signed className="shrink-0 text-sm text-fg" />
+          <Badge tone={entryTone[h.status]}>{entryLabel[h.status]}</Badge>
+        </button>
 
-      <div
-        className={`grid transition-all duration-200 ease-out ${
-          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="border-t bg-surface-2">
-            {changed.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-fg-faint sm:px-6">
-                No transactions were created.
-              </p>
-            ) : (
-              <div className="divide-y">
-                {changed.map((ar, i) => (
-                  <DeltaRow key={i} result={ar} />
-                ))}
-              </div>
-            )}
+        <div
+          className={`grid transition-all duration-200 ease-out ${
+            open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="rounded-b-xl border-t bg-surface-2">
+              {postings.length === 0 ? (
+                <p className="px-4 py-3 text-xs text-fg-faint sm:px-5">
+                  No postings — everything was already in balance.
+                </p>
+              ) : (
+                <div className="divide-y">
+                  {postings.map((ar, i) => (
+                    <DeltaRow key={i} result={ar} />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }
