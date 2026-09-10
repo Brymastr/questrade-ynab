@@ -52,6 +52,8 @@ export default function App() {
             )
           }
         />
+        {/* Any unknown hash falls back to home instead of a blank screen. */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>
   )

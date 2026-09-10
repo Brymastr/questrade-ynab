@@ -287,9 +287,14 @@ function InBalance({
         <p className="text-sm text-fg-muted">{subline}</p>
       </div>
       <div className="flex items-center gap-4 text-sm">
-        <a href="#ledger" className="text-accent hover:underline">
+        <button
+          onClick={() =>
+            document.getElementById('ledger')?.scrollIntoView({ behavior: 'smooth' })
+          }
+          className="rounded text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
           View ledger
-        </a>
+        </button>
         <span className="text-line">·</span>
         <button
           onClick={onRecheck}
