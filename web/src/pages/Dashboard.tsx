@@ -117,17 +117,9 @@ export default function Dashboard({ user, onLogout }: Props) {
 
         {(!firstRun || history.length > 0) && loaded && (
           <section id="ledger" className="space-y-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-faint">
-                Ledger
-              </h2>
-              <a
-                href="#/mappings"
-                className="rounded text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Accounts
-              </a>
-            </div>
+            <h2 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-faint">
+              Ledger
+            </h2>
             <Ledger history={history} />
           </section>
         )}
@@ -286,12 +278,21 @@ function InBalance({
         </h2>
         <p className="text-sm text-fg-muted">{subline}</p>
       </div>
-      <button
-        onClick={onRecheck}
-        className="rounded text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        Check again
-      </button>
+      <div className="flex items-center gap-4 text-sm">
+        <a
+          href="#/mappings"
+          className="rounded text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Accounts
+        </a>
+        <span className="text-line">·</span>
+        <button
+          onClick={onRecheck}
+          className="rounded text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Check again
+        </button>
+      </div>
     </section>
   )
 }
