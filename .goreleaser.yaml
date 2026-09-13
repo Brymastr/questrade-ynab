@@ -1,0 +1,55 @@
+# Release config for GoReleaser (https://goreleaser.com).
+# Triggered by .github/workflows/release.yml on every v* tag.
+version: 2
+
+project_name: questrade-ynab
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: questrade-ynab
+    main: .
+    binary: questrade-ynab
+    # modernc sqlite is pure Go, so every target cross-compiles without CGO.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/brymastr/questrade-ynab/cmd.Version={{.Version}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: brymastr
+    name: questrade-ynab
+  draft: false
+  prerelease: auto

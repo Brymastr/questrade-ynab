@@ -8,9 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is stamped by GoReleaser via ldflags; "dev" for local builds.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "questrade-ynab",
-	Short: "Sync Questrade investment accounts with YNAB",
+	Use:     "questrade-ynab",
+	Version: Version,
+	Short:   "Sync Questrade investment accounts with YNAB",
 	Long: `A CLI application that fetches current investment account values from Questrade
 and updates the corresponding accounts in YNAB (You Need A Budget).`,
 	// Load .env before any command runs so OAuth client IDs/secrets and other
