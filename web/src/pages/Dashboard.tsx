@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import DeltaRow from '../components/DeltaRow'
+import FirstRun from '../components/FirstRun'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -64,7 +65,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     try {
       const result = await api.runSync(false)
       setDrift({ state: 'posted', count: result.accounts_synced })
-      api.getSyncHistory().then(setHistory).catch(() => {})
+      api.getSyncHistory().then(setHistory).catch(() => { })
     } catch (e: any) {
       setPostError(e.message)
     } finally {
@@ -201,7 +202,7 @@ function DriftHero({
     return (
       <InBalance
         eyebrow="Checked just now"
-        subline={`All ${mappingCount} mapped account${mappingCount === 1 ? '' : 's'} match YNAB to the cent.`}
+        subline={`All ${mappingCount} mapped account${mappingCount === 1 ? '' : 's'} match YNAB.`}
         onRecheck={onRecheck}
       />
     )
@@ -297,98 +298,6 @@ function InBalance({
   )
 }
 
-/* -------------------------------- first run ------------------------------ */
-
-function FirstRun({ user }: { user: User }) {
-  return (
-    <section className="flex flex-col items-center gap-6 text-center">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
-          Two steps to your first entry
-        </h2>
-        <p className="text-sm text-fg-muted">
-          Each finished step becomes a line in your ledger.
-        </p>
-      </div>
-
-      <Card flush className="w-full max-w-md text-left">
-        <div className="divide-y">
-          <ChecklistRow
-            n={1}
-            label="Connect Questrade"
-            done={user.questrade_connected}
-          />
-          <ChecklistRow n={2} label="Connect YNAB" done={user.ynab_connected}>
-            {!user.ynab_connected && user.questrade_connected && (
-              <a
-                href="/auth/ynab"
-                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-              >
-                Connect
-              </a>
-            )}
-          </ChecklistRow>
-          <ChecklistRow n={3} label="Map your accounts" done={false} muted={!user.ynab_connected}>
-            {user.ynab_connected ? (
-              <a
-                href="#/mappings"
-                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-              >
-                Map accounts
-              </a>
-            ) : (
-              <span className="shrink-0 text-xs text-fg-faint">After YNAB</span>
-            )}
-          </ChecklistRow>
-        </div>
-      </Card>
-
-      <div className="flex flex-col items-center gap-1">
-        <span className="h-6 w-0.5 bg-line" aria-hidden="true" />
-        <p className="text-xs text-fg-faint">Your ledger starts here.</p>
-      </div>
-    </section>
-  )
-}
-
-function ChecklistRow({
-  n,
-  label,
-  done,
-  muted = false,
-  children,
-}: {
-  n: number
-  label: string
-  done: boolean
-  muted?: boolean
-  children?: React.ReactNode
-}) {
-  return (
-    <div className="flex min-h-[60px] items-center justify-between gap-3 px-5 py-3">
-      <div className="flex min-w-0 items-center gap-3">
-        {done ? (
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-pos/10">
-            <Check className="h-3.5 w-3.5 text-pos" />
-          </span>
-        ) : (
-          <span
-            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-              muted ? 'text-fg-faint' : 'border-fg-faint text-fg-muted'
-            }`}
-          >
-            {n}
-          </span>
-        )}
-        <span className={`truncate text-sm font-medium ${muted ? 'text-fg-faint' : 'text-fg'}`}>
-          {label}
-        </span>
-      </div>
-      {done ? <span className="shrink-0 text-xs font-medium text-pos">Done</span> : children}
-    </div>
-  )
-}
-
 /* --------------------------------- ledger -------------------------------- */
 
 const entryTone = { success: 'success', partial: 'warning', error: 'danger' } as const
@@ -461,9 +370,8 @@ function LedgerEntry({ h }: { h: SyncHistory }) {
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:px-5 ${
-            open ? 'rounded-t-xl' : 'rounded-xl'
-          }`}
+          className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:px-5 ${open ? 'rounded-t-xl' : 'rounded-xl'
+            }`}
         >
           <ChevronRight
             className={`h-4 w-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`}
@@ -480,9 +388,8 @@ function LedgerEntry({ h }: { h: SyncHistory }) {
         </button>
 
         <div
-          className={`grid transition-all duration-200 ease-out ${
-            open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-          }`}
+          className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+            }`}
         >
           <div className="overflow-hidden">
             <div className="rounded-b-xl border-t bg-surface-2">

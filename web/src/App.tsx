@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { api } from './api/client'
 import Spinner from './components/ui/Spinner'
+import ConnectQuestrade from './pages/ConnectQuestrade'
 import Dashboard from './pages/Dashboard'
 import Landing from './pages/Landing'
 import Mappings from './pages/Mappings'
@@ -27,11 +28,19 @@ export default function App() {
       <Routes>
         <Route
           path="/"
-          element={!user ? <Landing onConnected={setUser} /> : <Navigate to="/dashboard" replace />}
+          element={!user ? <Landing /> : <Navigate to="/dashboard" replace />}
         />
-        {/* The old connect page is folded into the dashboard's first-run
-            checklist; keep the route as a redirect for stale links. */}
-        <Route path="/connect" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
+        {/* Questrade token prompt; connecting creates the session. */}
+        <Route
+          path="/connect"
+          element={
+            user?.questrade_connected ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <ConnectQuestrade onConnected={setUser} />
+            )
+          }
+        />
         <Route
           path="/mappings"
           element={

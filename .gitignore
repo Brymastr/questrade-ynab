@@ -46,3 +46,5 @@ data/
 
 # Environment secrets
 .env
+# GoReleaser output
+/dist/
