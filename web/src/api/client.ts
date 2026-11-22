@@ -1,5 +1,6 @@
 import type {
   Mapping,
+  MappingSuggestion,
   QuestradeAccount,
   SyncHistory,
   SyncResult,
@@ -39,6 +40,9 @@ export const api = {
     request<YNABAccount[]>(`/api/accounts/ynab?budget_id=${budgetId}`),
 
   getMappings: () => request<Mapping[]>('/api/mappings'),
+
+  suggestMappings: (budgetId: string) =>
+    request<MappingSuggestion[]>(`/api/mappings/suggest?budget_id=${budgetId}`),
 
   putMappings: (mappings: Omit<Mapping, 'id' | 'user_id'>[]) =>
     request<Mapping[]>('/api/mappings', { method: 'PUT', body: JSON.stringify(mappings) }),

@@ -54,3 +54,13 @@ export interface SyncHistory {
   accounts_synced: number
   detail: string
 }
+
+export interface MappingSuggestion {
+  questrade_account_number: string
+  questrade_type: string
+  ynab_budget_id: string
+  ynab_account_id: string
+  ynab_name: string
+  score: number
+  reason: string
+}

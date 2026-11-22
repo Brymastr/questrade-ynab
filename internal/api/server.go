@@ -49,6 +49,7 @@ func NewRouter(store db.Store, sched ScheduleManager) http.Handler {
 		r.Get("/api/accounts/ynab", handleYNABAccounts(store))
 
 		r.Get("/api/mappings", handleGetMappings(store))
+		r.Get("/api/mappings/suggest", handleSuggestMappings(store))
 		r.Put("/api/mappings", handlePutMappings(store))
 		r.Delete("/api/mappings/{id}", handleDeleteMapping(store))
 

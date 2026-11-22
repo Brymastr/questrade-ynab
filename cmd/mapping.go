@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/brymastr/questrade-ynab/internal/match"
+	"github.com/brymastr/questrade-ynab/internal/questrade"
 	"github.com/brymastr/questrade-ynab/internal/ynab"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
@@ -112,20 +115,20 @@ var mappingListCmd = &cobra.Command{
 
 		// Print mapping of Questrade accounts to YNAB accounts (by name)
 		mappingPath := filepath.Join(configDir, "mappings.json")
-		       var accountMapping map[string]string
-		       mappingData, err := os.ReadFile(mappingPath)
-		       if err == nil {
-			       if len(mappingData) == 0 {
-				       accountMapping = make(map[string]string)
-			       } else {
-				       if err := json.Unmarshal(mappingData, &accountMapping); err != nil {
-					       fmt.Printf("Error parsing mappings.json: %v\n", err)
-					       accountMapping = make(map[string]string)
-				       }
-			       }
-		       } else {
-			       accountMapping = make(map[string]string)
-		       }
+		var accountMapping map[string]string
+		mappingData, err := os.ReadFile(mappingPath)
+		if err == nil {
+			if len(mappingData) == 0 {
+				accountMapping = make(map[string]string)
+			} else {
+				if err := json.Unmarshal(mappingData, &accountMapping); err != nil {
+					fmt.Printf("Error parsing mappings.json: %v\n", err)
+					accountMapping = make(map[string]string)
+				}
+			}
+		} else {
+			accountMapping = make(map[string]string)
+		}
 
 		// Build lookup maps for names
 		qNumToName := make(map[string]string)
@@ -189,6 +192,26 @@ var mappingSetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		accountMapping := make(map[string]string)
+
+		// Offer name-based suggestions before the manual loop. Nothing is
+		// applied unless the user says yes; they can still change any pair
+		// below.
+		if suggestions := suggestMappings(qAccounts, yAccounts); len(suggestions) > 0 {
+			fmt.Println("\nSuggested mappings (from account names):")
+			for _, sg := range suggestions {
+				fmt.Printf("  %s #%s → %s  (%s)\n", sg.QuestradeType, sg.QuestradeNumber, sg.YNABName, sg.Reason)
+			}
+			fmt.Print("Accept these suggestions? You can still adjust them. (y/N): ")
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			if strings.EqualFold(strings.TrimSpace(answer), "y") {
+				for _, sg := range suggestions {
+					accountMapping[sg.QuestradeNumber] = sg.YNABAccountID
+				}
+				fmt.Printf("✓ Applied %d suggested mapping(s)\n", len(suggestions))
+			}
+		}
+
 		for {
 			// Prepare Questrade account options
 			qOptions := []string{}
@@ -304,4 +327,20 @@ var mappingSetCmd = &cobra.Command{
 func init() {
 	mappingCmd.AddCommand(mappingListCmd)
 	mappingCmd.AddCommand(mappingSetCmd)
+}
+
+// suggestMappings runs the shared name matcher over open YNAB accounts.
+func suggestMappings(qAccounts []questrade.Account, yAccounts []ynab.Account) []match.Suggestion {
+	qts := make([]match.QuestradeAccount, 0, len(qAccounts))
+	for _, a := range qAccounts {
+		qts = append(qts, match.QuestradeAccount{Number: a.Number, Type: a.Type})
+	}
+	ynabs := make([]match.YNABAccount, 0, len(yAccounts))
+	for _, a := range yAccounts {
+		if a.Closed {
+			continue
+		}
+		ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: a.Type})
+	}
+	return match.Suggest(qts, ynabs)
 }

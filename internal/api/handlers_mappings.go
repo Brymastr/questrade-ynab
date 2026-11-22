@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/brymastr/questrade-ynab/internal/db"
+	"github.com/brymastr/questrade-ynab/internal/match"
+	"github.com/brymastr/questrade-ynab/internal/questrade"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -71,5 +73,63 @@ func handleDeleteMapping(store db.Store) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleSuggestMappings guesses a YNAB account for each Questrade account from
+// names alone. It never writes anything; the client shows the suggestions and
+// the user confirms them through PUT /api/mappings.
+func handleSuggestMappings(store db.Store) http.HandlerFunc {
+	type suggestionResponse struct {
+		match.Suggestion
+		YNABBudgetID string `json:"ynab_budget_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := userIDFromCtx(r)
+		budgetID := r.URL.Query().Get("budget_id")
+		if budgetID == "" {
+			writeError(w, http.StatusBadRequest, "budget_id query param required")
+			return
+		}
+
+		var qts []match.QuestradeAccount
+		err := withQuestradeClient(store, userID, func(qc *questrade.Client) error {
+			accounts, e := qc.GetAccounts()
+			if e != nil {
+				return e
+			}
+			for _, a := range accounts {
+				qts = append(qts, match.QuestradeAccount{Number: a.Number, Type: a.Type})
+			}
+			return nil
+		})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "failed to fetch questrade accounts: "+err.Error())
+			return
+		}
+
+		yc, err := ynabClient(store, userID, budgetID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		accounts, err := yc.GetAccounts()
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "failed to fetch ynab accounts: "+err.Error())
+			return
+		}
+		var ynabs []match.YNABAccount
+		for _, a := range accounts {
+			if a.Closed {
+				continue
+			}
+			ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: a.Type})
+		}
+
+		out := []suggestionResponse{}
+		for _, s := range match.Suggest(qts, ynabs) {
+			out = append(out, suggestionResponse{Suggestion: s, YNABBudgetID: budgetID})
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }

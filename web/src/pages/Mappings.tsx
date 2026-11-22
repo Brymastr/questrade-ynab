@@ -6,7 +6,7 @@ import Money from '../components/ui/Money'
 import PageShell from '../components/ui/PageShell'
 import Select from '../components/ui/Select'
 import Spinner from '../components/ui/Spinner'
-import type { QuestradeAccount, YNABAccount, YNABBudget } from '../types'
+import type { MappingSuggestion, QuestradeAccount, YNABAccount, YNABBudget } from '../types'
 
 interface Props {
   onSaved: () => void
@@ -28,6 +28,9 @@ export default function Mappings({ onSaved }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Questrade numbers whose wire came from the name matcher and hasn't been
+  // touched by the user. They render dashed until saved or changed.
+  const [suggested, setSuggested] = useState<Record<string, MappingSuggestion>>({})
 
   useEffect(() => {
     Promise.all([api.questradeAccounts(), api.ynabBudgets(), api.getMappings()])
@@ -53,6 +56,37 @@ export default function Mappings({ onSaved }: Props) {
     api.ynabAccounts(selectedBudget).then(setYnabAccounts)
   }, [selectedBudget])
 
+  // Optimistic matching: once the budget is known, ask the API which YNAB
+  // account each Questrade account probably posts to, and pre-wire any row
+  // the user hasn't wired yet. Nothing is saved until they click Save.
+  useEffect(() => {
+    if (!selectedBudget) return
+    let cancelled = false
+    api
+      .suggestMappings(selectedBudget)
+      .then((suggestions) => {
+        if (cancelled) return
+        setRows((prev) => {
+          const taken = new Set(prev.filter((r) => r.ynabAccountId).map((r) => r.ynabAccountId))
+          const applied: Record<string, MappingSuggestion> = {}
+          const next = prev.map((r) => {
+            if (r.ynabAccountId) return r
+            const sg = suggestions.find((x) => x.questrade_account_number === r.questradeNumber)
+            if (!sg || taken.has(sg.ynab_account_id)) return r
+            taken.add(sg.ynab_account_id)
+            applied[r.questradeNumber] = sg
+            return { ...r, ynabAccountId: sg.ynab_account_id }
+          })
+          setSuggested(applied)
+          return next
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [selectedBudget])
+
   // Wiring one YNAB account to a Questrade account steals it from any other
   // row — an account can only receive one wire.
   const setYnabAccount = (questradeNumber: string, ynabAccountId: string) => {
@@ -63,7 +97,23 @@ export default function Mappings({ onSaved }: Props) {
         return r
       }),
     )
+    // A wire the user set (or stole) is theirs now, not a suggestion.
+    setSuggested((prev) => {
+      const next = { ...prev }
+      delete next[questradeNumber]
+      for (const [qn, sg] of Object.entries(prev)) {
+        if (sg.ynab_account_id === ynabAccountId) delete next[qn]
+      }
+      return next
+    })
   }
+
+  const clearSuggestions = () => {
+    setRows((prev) => prev.map((r) => (suggested[r.questradeNumber] ? { ...r, ynabAccountId: '' } : r)))
+    setSuggested({})
+  }
+
+  const suggestedCount = Object.keys(suggested).length
 
   const save = async () => {
     const mappings = rows
@@ -96,7 +146,7 @@ export default function Mappings({ onSaved }: Props) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-fg-faint">
+      <div className="flex min-h-dvh items-center justify-center text-fg-faint">
         <Spinner className="h-6 w-6" />
       </div>
     )
@@ -130,12 +180,30 @@ export default function Mappings({ onSaved }: Props) {
         </Select>
       )}
 
+      {suggestedCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-accent/60 bg-accent/5 px-4 py-3 text-sm">
+          <span className="text-fg-muted">
+            <span className="font-medium text-fg">
+              {suggestedCount} wire{suggestedCount === 1 ? '' : 's'} suggested
+            </span>{' '}
+            from account names. Check {suggestedCount === 1 ? 'it' : 'them'}, then save.
+          </span>
+          <button
+            onClick={clearSuggestions}
+            className="shrink-0 rounded text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Desktop: the wire board. */}
       <div className="hidden sm:block">
         <WireBoard
           qtAccounts={qtAccounts}
           ynabAccounts={ynabAccounts}
           rows={rows}
+          suggested={suggested}
           onWire={setYnabAccount}
         />
       </div>
@@ -168,6 +236,9 @@ export default function Mappings({ onSaved }: Props) {
                     </option>
                   ))}
                 </Select>
+                {suggested[row.questradeNumber] && (
+                  <p className="text-xs text-accent">Suggested from the account name</p>
+                )}
               </div>
             )
           })}
@@ -202,11 +273,13 @@ function WireBoard({
   qtAccounts,
   ynabAccounts,
   rows,
+  suggested,
   onWire,
 }: {
   qtAccounts: QuestradeAccount[]
   ynabAccounts: YNABAccount[]
   rows: MappingRow[]
+  suggested: Record<string, MappingSuggestion>
   onWire: (questradeNumber: string, ynabAccountId: string) => void
 }) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -312,8 +385,9 @@ function WireBoard({
               key={wire.key}
               d={wire.d}
               fill="none"
-              className="stroke-fg-faint"
+              className={suggested[wire.key] ? 'stroke-accent' : 'stroke-fg-faint'}
               strokeWidth="2"
+              strokeDasharray={suggested[wire.key] ? '6 5' : undefined}
             />
           ))}
           {wires.flatMap((wire) => {
@@ -345,8 +419,14 @@ function WireBoard({
               } ${!owner && !receiving ? 'opacity-75' : ''}`}
             >
               <span className="truncate text-sm font-medium text-fg">{a.name}</span>
-              <span className="text-xs text-fg-faint">
-                {owner ? 'Wired' : receiving ? 'Select to wire' : 'Unmapped'}
+              <span className={`text-xs ${owner && suggested[owner.questradeNumber] ? 'text-accent' : 'text-fg-faint'}`}>
+                {owner
+                  ? suggested[owner.questradeNumber]
+                    ? 'Suggested'
+                    : 'Wired'
+                  : receiving
+                    ? 'Select to wire'
+                    : 'Unmapped'}
               </span>
             </button>
           )

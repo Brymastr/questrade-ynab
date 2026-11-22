@@ -79,25 +79,43 @@ export default function Dashboard({ user, onLogout }: Props) {
   }
 
   const firstRun = !user.ynab_connected || mappings.length === 0
+  // The checklist without a ledger is a lone card, so centre it in the
+  // remaining viewport like the landing page does; once there is a ledger
+  // (or a hero) the page reads top-down.
+  const centered = loaded && firstRun && history.length === 0
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-dvh flex-col">
       <header className="border-b bg-surface">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <h1 className="truncate text-sm font-medium text-fg">Questrade → YNAB</h1>
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-1 sm:gap-2">
             {/* Connection dots are desktop-only; on a phone the checklist and
                 errors carry the same information. */}
             <ConnectionPill label="Questrade" on={user.questrade_connected} />
             <ConnectionPill label="YNAB" on={user.ynab_connected} />
-            <Button variant="ghost" onClick={logout} className="px-2 py-1">
+            {/* Always reachable once YNAB is connected, so a wrong wire can be
+                fixed straight after saving, whatever the drift check says. */}
+            {user.ynab_connected && (
+              <a
+                href="#/mappings"
+                className="rounded px-2 py-1 text-sm leading-5 text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Accounts
+              </a>
+            )}
+            <Button variant="ghost" onClick={logout} className="px-2 py-1 text-sm leading-5">
               Log out
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-12 px-4 py-10 sm:px-6 sm:py-14">
+      <div
+        className={`mx-auto w-full max-w-3xl space-y-12 px-4 py-10 sm:px-6 sm:py-14 ${
+          centered ? 'flex flex-1 flex-col justify-center pb-24 sm:pb-32' : ''
+        }`}
+      >
         {!loaded ? (
           <div className="flex justify-center py-16 text-fg-faint">
             <Spinner className="h-6 w-6" />
@@ -132,11 +150,11 @@ export default function Dashboard({ user, onLogout }: Props) {
 function ConnectionPill({ label, on }: { label: string; on: boolean }) {
   return (
     <span
-      className="hidden items-center gap-1.5 sm:flex"
+      className="hidden items-center gap-1.5 px-2 py-1 text-sm leading-5 text-fg-muted sm:flex"
       title={`${label}: ${on ? 'connected' : 'not connected'}`}
     >
       <StatusDot on={on} />
-      <span className="text-xs text-fg-muted">{label}</span>
+      <span>{label}</span>
     </span>
   )
 }

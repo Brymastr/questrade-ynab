@@ -71,8 +71,10 @@ Questrade App Hub. Step two is a normal OAuth handoff to YNAB.
 
 ### 2. Map accounts
 
-Wire each Questrade account to the YNAB tracking account it should post to. A YNAB
-account can only receive one wire, so picking it in one row unpicks it in another.
+Wire each Questrade account to the YNAB tracking account it should post to. If your
+YNAB accounts are named sensibly ("Questrade TFSA"), the wires are suggested for you
+and drawn dashed until you save. A YNAB account can only receive one wire, so picking
+it in one row unpicks it in another.
 
 <p align="center">
 <picture>
@@ -216,6 +218,7 @@ flowchart LR
 | `GET` | `/api/me` | Connection status for both services. |
 | `GET` | `/api/accounts/questrade`, `/api/budgets/ynab`, `/api/accounts/ynab` | Account lists for the mapping screen. |
 | `GET` `PUT` `DELETE` | `/api/mappings` | Read, replace, or remove mappings. |
+| `GET` | `/api/mappings/suggest?budget_id=` | Name-based guesses at which YNAB account each Questrade account maps to. Read-only; the user confirms. |
 | `POST` | `/api/sync/run?dry_run=true` | Run a sync. Dry-run is what the dashboard calls on load. |
 | `GET` `PUT` | `/api/sync/schedule` | Per-user cron expression for automatic syncs. |
 | `GET` | `/api/sync/history` | The ledger. |
