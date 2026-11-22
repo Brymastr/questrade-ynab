@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,7 +11,8 @@ import (
 	"time"
 
 	"github.com/brymastr/questrade-ynab/internal/questrade"
-	"github.com/brymastr/questrade-ynab/internal/ynab"
+	qysync "github.com/brymastr/questrade-ynab/internal/sync"
+	"github.com/brymastr/ynab-go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -56,7 +58,11 @@ var syncCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		yClient := ynab.NewClient(ynabToken, budgetID)
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		yClient := ynab.NewClient(ynabToken, ynab.WithUserAgent("questrade-ynab"))
 
 		// Get Questrade accounts
 		fmt.Println("Fetching Questrade accounts...")
@@ -72,7 +78,7 @@ var syncCmd = &cobra.Command{
 
 		// Get YNAB accounts
 		fmt.Println("Fetching YNAB accounts...")
-		yAccounts, err := yClient.GetAccounts()
+		yAccounts, err := yClient.GetAccounts(ctx, budgetID)
 		if err != nil {
 			fmt.Printf("Error fetching YNAB accounts: %v\n", err)
 			os.Exit(1)
@@ -88,9 +94,9 @@ var syncCmd = &cobra.Command{
 			QuestradeName string
 			YNABName      string
 			YNABAccountID string
-			OldBalance    float64
-			NewBalance    float64
-			Amount        float64
+			OldBalance    ynab.Milliunits
+			NewBalance    ynab.Milliunits
+			Amount        ynab.Milliunits
 		}
 		var planned []PlannedTx
 		for qNum, yID := range accountMapping {
@@ -112,8 +118,7 @@ var syncCmd = &cobra.Command{
 				log.Printf("Skipping mapping for Questrade %s: YNAB account %s not found", qNum, yID)
 				continue
 			}
-			yBalance := float64(yAcc.Balance) / 1000
-			diff := qBalance - yBalance
+			oldMilli, newMilli, diff := qysync.PlanAdjustment(yAcc.Balance, qBalance)
 			if diff == 0 {
 				continue
 			}
@@ -121,8 +126,8 @@ var syncCmd = &cobra.Command{
 				QuestradeName: fmt.Sprintf("%s (%s)", qAcc.Number, qAcc.Type),
 				YNABName:      yAcc.Name,
 				YNABAccountID: yAcc.ID,
-				OldBalance:    yBalance,
-				NewBalance:    qBalance,
+				OldBalance:    oldMilli,
+				NewBalance:    newMilli,
 				Amount:        diff,
 			})
 		}
@@ -134,7 +139,7 @@ var syncCmd = &cobra.Command{
 
 		fmt.Println("Planned transactions:")
 		for _, tx := range planned {
-			fmt.Printf("  %s → %s: $%.2f → $%.2f (delta: $%.2f)\n", tx.QuestradeName, tx.YNABName, tx.OldBalance, tx.NewBalance, tx.Amount)
+			fmt.Printf("  %s → %s: $%.2f → $%.2f (delta: $%.2f)\n", tx.QuestradeName, tx.YNABName, float64(tx.OldBalance)/1000, float64(tx.NewBalance)/1000, float64(tx.Amount)/1000)
 		}
 
 		if dryRun {
@@ -152,21 +157,27 @@ var syncCmd = &cobra.Command{
 		}
 
 		// Actually create transactions
-		today := time.Now().Format("2006-01-02")
+		today := ynab.NewDate(time.Now())
 		for _, tx := range planned {
-			ynabTx := ynab.Transaction{
+			importID := qysync.AdjustmentImportID(tx.YNABAccountID, today, tx.OldBalance, tx.NewBalance)
+			ynabTx := ynab.NewTransaction{
 				AccountID: tx.YNABAccountID,
 				Date:      today,
-				Amount:    int64(tx.Amount * 1000),
+				Amount:    tx.Amount,
 				PayeeName: "Stock Market",
 				Memo:      "Questrade sync",
-				Cleared:   "cleared",
+				Cleared:   ynab.Cleared,
 				Approved:  true,
+				ImportID:  importID,
 			}
-			if err := yClient.CreateTransaction(ynabTx); err != nil {
+			res, err := yClient.CreateTransactions(ctx, budgetID, []ynab.NewTransaction{ynabTx})
+			switch {
+			case err != nil:
 				fmt.Printf("Error creating transaction for %s: %v\n", tx.YNABName, err)
-			} else {
-				fmt.Printf("✓ Created transaction for %s: $%.2f\n", tx.YNABName, tx.Amount)
+			case qysync.IsDuplicateImportID(res, importID):
+				fmt.Printf("= Already in YNAB for %s: $%.2f (duplicate import_id, skipped)\n", tx.YNABName, float64(tx.Amount)/1000)
+			default:
+				fmt.Printf("✓ Created transaction for %s: $%.2f\n", tx.YNABName, float64(tx.Amount)/1000)
 			}
 		}
 	},

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/brymastr/questrade-ynab/internal/match"
 	"github.com/brymastr/questrade-ynab/internal/questrade"
-	"github.com/brymastr/questrade-ynab/internal/ynab"
+	"github.com/brymastr/ynab-go"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -68,7 +69,11 @@ var mappingListCmd = &cobra.Command{
 			}
 		}
 
-		yClient := ynab.NewClient(ynabToken, budgetID)
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		yClient := ynab.NewClient(ynabToken, ynab.WithUserAgent("questrade-ynab"))
 
 		// Get Questrade accounts (with balances fetched in parallel)
 		fmt.Println("\nQuestrade Accounts:")
@@ -98,7 +103,7 @@ var mappingListCmd = &cobra.Command{
 		// Get YNAB accounts
 		fmt.Println("\nYNAB Accounts:")
 		fmt.Println("==============")
-		yAccounts, err := yClient.GetAccounts()
+		yAccounts, err := yClient.GetAccounts(ctx, budgetID)
 		if err != nil {
 			fmt.Printf("Error fetching YNAB accounts: %v\n", err)
 			os.Exit(1)
@@ -177,7 +182,11 @@ var mappingSetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		yClient := ynab.NewClient(ynabToken, budgetID)
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		yClient := ynab.NewClient(ynabToken, ynab.WithUserAgent("questrade-ynab"))
 
 		// Get accounts
 		fmt.Println("\nFetching accounts for mapping setup...")
@@ -186,7 +195,7 @@ var mappingSetCmd = &cobra.Command{
 			fmt.Printf("Error fetching Questrade accounts: %v\n", err)
 			os.Exit(1)
 		}
-		yAccounts, err := yClient.GetAccounts()
+		yAccounts, err := yClient.GetAccounts(ctx, budgetID)
 		if err != nil {
 			fmt.Printf("Error fetching YNAB accounts: %v\n", err)
 			os.Exit(1)
@@ -340,7 +349,7 @@ func suggestMappings(qAccounts []questrade.Account, yAccounts []ynab.Account) []
 		if a.Closed {
 			continue
 		}
-		ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: a.Type})
+		ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: string(a.Type)})
 	}
 	return match.Suggest(qts, ynabs)
 }

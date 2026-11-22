@@ -10,7 +10,7 @@ import (
 	"github.com/brymastr/questrade-ynab/internal/auth"
 	"github.com/brymastr/questrade-ynab/internal/db"
 	"github.com/brymastr/questrade-ynab/internal/questrade"
-	"github.com/brymastr/questrade-ynab/internal/ynab"
+	"github.com/brymastr/ynab-go"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -82,7 +82,7 @@ func withQuestradeClient(store db.Store, userID string, fn func(*questrade.Clien
 }
 
 // ynabClient builds a YNAB client from stored tokens, refreshing if needed.
-func ynabClient(store db.Store, userID, budgetID string) (*ynab.Client, error) {
+func ynabClient(store db.Store, userID string) (*ynab.Client, error) {
 	tok, err := store.GetToken(userID, "ynab")
 	if err != nil || tok == nil {
 		return nil, fmt.Errorf("ynab not connected")
@@ -102,10 +102,5 @@ func ynabClient(store db.Store, userID, budgetID string) (*ynab.Client, error) {
 		})
 		tok.AccessToken = res.AccessToken
 	}
-	return ynab.NewClient(tok.AccessToken, budgetID), nil
-}
-
-// ynabClientForBudgets builds a budget-agnostic YNAB client.
-func ynabClientForBudgets(store db.Store, userID string) (*ynab.Client, error) {
-	return ynabClient(store, userID, "")
+	return ynab.NewClient(tok.AccessToken, ynab.WithUserAgent("questrade-ynab")), nil
 }

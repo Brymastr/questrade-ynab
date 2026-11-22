@@ -108,12 +108,12 @@ func handleSuggestMappings(store db.Store) http.HandlerFunc {
 			return
 		}
 
-		yc, err := ynabClient(store, userID, budgetID)
+		yc, err := ynabClient(store, userID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		accounts, err := yc.GetAccounts()
+		accounts, err := yc.GetAccounts(r.Context(), budgetID)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to fetch ynab accounts: "+err.Error())
 			return
@@ -123,7 +123,7 @@ func handleSuggestMappings(store db.Store) http.HandlerFunc {
 			if a.Closed {
 				continue
 			}
-			ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: a.Type})
+			ynabs = append(ynabs, match.YNABAccount{ID: a.ID, Name: a.Name, Type: string(a.Type)})
 		}
 
 		out := []suggestionResponse{}

@@ -1,14 +1,14 @@
 package sync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"time"
 
 	"github.com/brymastr/questrade-ynab/internal/questrade"
-	"github.com/brymastr/questrade-ynab/internal/ynab"
+	"github.com/brymastr/ynab-go"
 )
 
 // Mapping pairs a Questrade account to a YNAB account within a budget.
@@ -27,6 +27,9 @@ type AccountResult struct {
 	NewBalance      float64 `json:"new_balance"`
 	Delta           float64 `json:"delta"`
 	Error           string  `json:"error,omitempty"`
+	// AlreadySynced is true when YNAB already had this adjustment (duplicate
+	// import_id), so nothing new was created.
+	AlreadySynced bool `json:"already_synced,omitempty"`
 }
 
 // Result is the aggregate output of a sync run.
@@ -46,6 +49,8 @@ func Run(qClient *questrade.Client, ynabTokens map[string]string, mappings []Map
 		}
 	}
 
+	ctx := context.Background()
+
 	qAccounts, err := qClient.GetAccounts()
 	if err != nil {
 		return nil, fmt.Errorf("fetch questrade accounts: %w", err)
@@ -56,17 +61,17 @@ func Run(qClient *questrade.Client, ynabTokens map[string]string, mappings []Map
 	}
 
 	// ynabTokens: budgetID → accessToken (callers pass one entry per distinct budget)
-	// Pre-build ynab clients keyed by budgetID
+	// Pre-build ynab clients keyed by budgetID (the plan ID is passed per call)
 	ynabClients := make(map[string]*ynab.Client, len(ynabTokens))
 	for budgetID, token := range ynabTokens {
-		ynabClients[budgetID] = ynab.NewClient(token, budgetID)
+		ynabClients[budgetID] = ynab.NewClient(token, ynab.WithUserAgent("questrade-ynab"))
 	}
 
 	// Fetch all YNAB accounts per budget (deduplicated)
 	type ynabKey struct{ budgetID, accountID string }
 	ynabAccounts := make(map[ynabKey]*ynab.Account)
 	for budgetID, yc := range ynabClients {
-		accs, err := yc.GetAccounts()
+		accs, err := yc.GetAccounts(ctx, budgetID)
 		if err != nil {
 			return nil, fmt.Errorf("fetch ynab accounts for budget %s: %w", budgetID, err)
 		}
@@ -78,7 +83,7 @@ func Run(qClient *questrade.Client, ynabTokens map[string]string, mappings []Map
 	}
 
 	result := &Result{}
-	today := time.Now().Format("2006-01-02")
+	today := ynab.NewDate(time.Now())
 
 	for _, m := range mappings {
 		ar := AccountResult{QuestradeNumber: m.QuestradeAccountNumber}
@@ -103,12 +108,11 @@ func Run(qClient *questrade.Client, ynabTokens map[string]string, mappings []Map
 			continue
 		}
 		ar.YNABName = yAcc.Name
-		ar.OldBalance = float64(yAcc.Balance) / 1000
-
-		// Round the delta to whole cents before deciding whether it's a real
-		// change. A raw float subtraction leaves tiny residue (e.g. -1e-13) that
-		// otherwise shows as "+0"/"-0" and creates bogus ~$0 transactions.
-		deltaMilliunits := int64(math.Round((ar.NewBalance-ar.OldBalance)*100)) * 10
+		// Whole-cent milliunits avoid float residue (e.g. -1e-13) that would
+		// show as "+0"/"-0" and create bogus ~$0 transactions.
+		oldMilli, newMilli, deltaMilliunits := PlanAdjustment(yAcc.Balance, ar.NewBalance)
+		ar.OldBalance = float64(oldMilli) / 1000
+		ar.NewBalance = float64(newMilli) / 1000
 		ar.Delta = float64(deltaMilliunits) / 1000
 
 		if deltaMilliunits == 0 {
@@ -118,19 +122,24 @@ func Run(qClient *questrade.Client, ynabTokens map[string]string, mappings []Map
 
 		if !dryRun {
 			yc := ynabClients[m.YNABBudgetID]
-			tx := ynab.Transaction{
+			importID := AdjustmentImportID(m.YNABAccountID, today, oldMilli, newMilli)
+			tx := ynab.NewTransaction{
 				AccountID: m.YNABAccountID,
 				Date:      today,
-				Amount:    deltaMilliunits,
+				Amount:    ynab.Milliunits(deltaMilliunits),
 				PayeeName: "Stock Market",
 				Memo:      "Questrade sync",
-				Cleared:   "cleared",
+				Cleared:   ynab.Cleared,
 				Approved:  true,
+				ImportID:  importID,
 			}
-			if err := yc.CreateTransaction(tx); err != nil {
+			if res, err := yc.CreateTransactions(ctx, m.YNABBudgetID, []ynab.NewTransaction{tx}); err != nil {
 				ar.Error = fmt.Sprintf("create transaction: %v", err)
 				result.Errors++
 				log.Printf("sync: error creating transaction for %s: %v", m.QuestradeAccountNumber, err)
+			} else if IsDuplicateImportID(res, importID) {
+				ar.AlreadySynced = true
+				log.Printf("sync: adjustment for %s already in YNAB (duplicate import_id), skipping", m.QuestradeAccountNumber)
 			} else {
 				result.AccountsSynced++
 			}

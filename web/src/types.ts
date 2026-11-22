@@ -44,6 +44,7 @@ export interface AccountResult {
   new_balance: number
   delta: number
   error?: string
+  already_synced?: boolean
 }
 
 export interface SyncHistory {

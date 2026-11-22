@@ -49,18 +49,27 @@ func handleQuestradeAccounts(store db.Store) http.HandlerFunc {
 func handleYNABBudgets(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
-		yc, err := ynabClientForBudgets(store, userID)
+		yc, err := ynabClient(store, userID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
-		budgets, err := yc.GetBudgets()
+		plans, err := yc.GetPlans(r.Context(), false)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to fetch ynab budgets: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, budgets)
+		// Keep the JSON shape {id, name}; YNAB calls budgets "plans".
+		type budgetResponse struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		out := make([]budgetResponse, 0, len(plans))
+		for _, p := range plans {
+			out = append(out, budgetResponse{ID: p.ID, Name: p.Name})
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -73,13 +82,13 @@ func handleYNABAccounts(store db.Store) http.HandlerFunc {
 			return
 		}
 
-		yc, err := ynabClient(store, userID, budgetID)
+		yc, err := ynabClient(store, userID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
-		accounts, err := yc.GetAccounts()
+		accounts, err := yc.GetAccounts(r.Context(), budgetID)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to fetch ynab accounts: "+err.Error())
 			return
@@ -100,7 +109,7 @@ func handleYNABAccounts(store db.Store) http.HandlerFunc {
 			out = append(out, accountResponse{
 				ID:      a.ID,
 				Name:    a.Name,
-				Type:    a.Type,
+				Type:    string(a.Type),
 				Balance: float64(a.Balance) / 1000,
 			})
 		}

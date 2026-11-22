@@ -129,7 +129,7 @@ func handleMe(store db.Store) http.HandlerFunc {
 		hasQT, _ := store.HasToken(userID, "questrade")
 		hasYNAB, _ := store.HasToken(userID, "ynab")
 		writeJSON(w, http.StatusOK, map[string]any{
-			"user_id":              userID,
+			"user_id":             userID,
 			"questrade_connected": hasQT,
 			"ynab_connected":      hasYNAB,
 		})
