@@ -78,8 +78,8 @@ func RefreshQuestradeToken(refreshToken string) (*OAuthResult, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
-	data.Set("client_id", os.Getenv("QUESTRADE_CLIENT_ID"))
-	data.Set("client_secret", os.Getenv("QUESTRADE_CLIENT_SECRET"))
+	// No client credentials: a personal-app refresh token already identifies
+	// the App Hub app that issued it, so any user's own token works here.
 
 	resp, err := http.PostForm(questradeTokenURL, data)
 	if err != nil {

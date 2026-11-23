@@ -99,10 +99,6 @@ func (c *Client) Refresh() (*TokenResponse, error) {
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", c.refreshToken)
 
-	// Build full URL (for logging) and log the request we're about to send so we can debug endpoint issues
-	fullURL := productionAuthURL + "?" + data.Encode()
-	log.Printf("questrade token refresh request: POST %s body=%s", fullURL, data.Encode())
-
 	resp, err := c.httpClient.PostForm(productionAuthURL, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh token: %w", err)
@@ -114,10 +110,7 @@ func (c *Client) Refresh() (*TokenResponse, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Always log the response body and status so we can inspect successful replies too
-	log.Printf("questrade token refresh response: status=%d body=%s", resp.StatusCode, string(body))
-
-	// Log the raw response body and status for debugging endpoint issues
+	// Never log the request or a successful body: both carry tokens.
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token refresh failed: status %d", resp.StatusCode)
 	}

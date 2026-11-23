@@ -240,7 +240,7 @@ Requirements: Go 1.25+, Node 18+.
 
 ```sh
 cp .env.example .env
-# set QUESTRADE_CLIENT_ID/SECRET and YNAB_CLIENT_ID/SECRET
+# set YNAB_CLIENT_ID/SECRET and TOKEN_ENCRYPTION_KEY
 
 make install   # npm install in web/
 make dev       # Go API on :8080 with live reload, Vite on :5173

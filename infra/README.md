@@ -53,13 +53,13 @@ role can read only that secret.
 
 ## After first deploy
 
-1. Fill in the four OAuth values in the secret (JWT_SECRET is already generated).
+1. Fill in the YNAB OAuth values in the secret (JWT_SECRET is already generated;
+   the QUESTRADE_* keys are unused and can stay blank).
    Easiest via the console, or fetch-merge-put:
    ```sh
    aws secretsmanager put-secret-value --secret-id questrade-ynab/dev \
      --secret-string '{
        "JWT_SECRET": "<keep the generated value>",
-       "QUESTRADE_CLIENT_ID": "...", "QUESTRADE_CLIENT_SECRET": "...",
        "YNAB_CLIENT_ID": "...", "YNAB_CLIENT_SECRET": "..." }'
    ```
    (`put-secret-value` replaces the whole JSON, so include the existing

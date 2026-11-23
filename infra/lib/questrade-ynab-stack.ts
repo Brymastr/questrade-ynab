@@ -24,8 +24,9 @@ export interface QuestradeYnabStackProps extends cdk.StackProps {
   domainName: string;
   hostedZoneName: string;
   // Name for the Secrets Manager secret this stack creates. It holds a JSON
-  // object with keys JWT_SECRET (auto-generated), QUESTRADE_CLIENT_ID,
-  // QUESTRADE_CLIENT_SECRET, YNAB_CLIENT_ID, YNAB_CLIENT_SECRET. The OAuth values
+  // object with keys JWT_SECRET (auto-generated), YNAB_CLIENT_ID and
+  // YNAB_CLIENT_SECRET, plus QUESTRADE_CLIENT_ID/SECRET which are no longer
+  // used (left in the template because changing it regenerates the secret). The OAuth values
   // start blank and are filled in after the first deploy (no plaintext in the
   // template).
   secretName: string;
