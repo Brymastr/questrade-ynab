@@ -63,7 +63,12 @@ role can read only that secret.
        "YNAB_CLIENT_ID": "...", "YNAB_CLIENT_SECRET": "..." }'
    ```
    (`put-secret-value` replaces the whole JSON, so include the existing
-   `JWT_SECRET`.) Changes take effect on the Lambda's next cold start.
+   `JWT_SECRET`.) Running instances keep the old values, so force fresh ones
+   with any config update, e.g.:
+   ```sh
+   aws lambda update-function-configuration --function-name <Api function> \
+     --description "secrets reloaded $(date -u +%FT%TZ)"
+   ```
 2. In YNAB developer settings, add the redirect URI
    `https://<DOMAIN_NAME>/auth/ynab/callback`.
 3. Open `https://<DOMAIN_NAME>`, connect YNAB (OAuth) and Questrade (paste token).
