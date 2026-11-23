@@ -71,20 +71,51 @@ func (s *Scheduler) Deregister(userID string) {
 }
 
 func (s *Scheduler) runSyncForUser(userID string) {
+	RunForUser(s.store, userID)
+}
+
+// DueUsers returns the users whose enabled schedule fires in the window
+// (from, to]. It's for an external trigger (EventBridge Scheduler on Lambda)
+// that ticks at a fixed interval instead of keeping an in-process cron; the
+// caller decides how to run them (on Lambda, one SQS message each).
+func DueUsers(store db.Store, from, to time.Time) ([]string, error) {
+	schedules, err := store.GetAllEnabledSchedules()
+	if err != nil {
+		return nil, err
+	}
+	var due []string
+	for _, sc := range schedules {
+		ok, err := isDue(sc.CronExpression, from, to)
+		if err != nil {
+			log.Printf("scheduler: invalid cron expression %q for user %s: %v", sc.CronExpression, sc.UserID, err)
+			continue
+		}
+		if ok {
+			due = append(due, sc.UserID)
+		}
+	}
+	log.Printf("scheduler: window (%s, %s]: %d of %d schedules due",
+		from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), len(due), len(schedules))
+	return due, nil
+}
+
+// RunForUser syncs one user's mapped accounts, refreshing tokens as needed,
+// and records the outcome in their sync history.
+func RunForUser(store db.Store, userID string) {
 	log.Printf("scheduler: running sync for user %s", userID)
 
-	mappings, err := s.store.GetMappings(userID)
+	mappings, err := store.GetMappings(userID)
 	if err != nil || len(mappings) == 0 {
 		log.Printf("scheduler: no mappings for user %s, skipping", userID)
 		return
 	}
 
-	qtTok, err := s.store.GetToken(userID, "questrade")
+	qtTok, err := store.GetToken(userID, "questrade")
 	if err != nil || qtTok == nil {
 		log.Printf("scheduler: questrade not connected for user %s", userID)
 		return
 	}
-	ynabTok, err := s.store.GetToken(userID, "ynab")
+	ynabTok, err := store.GetToken(userID, "ynab")
 	if err != nil || ynabTok == nil {
 		log.Printf("scheduler: ynab not connected for user %s", userID)
 		return
@@ -99,7 +130,7 @@ func (s *Scheduler) runSyncForUser(userID string) {
 			return
 		}
 		qc = questrade.NewClientFromTokens(res.RefreshToken, res.AccessToken, res.APIServer, res.ExpiresAt)
-		_ = s.store.UpsertToken(db.OAuthToken{
+		_ = store.UpsertToken(db.OAuthToken{
 			UserID:       userID,
 			Provider:     "questrade",
 			AccessToken:  res.AccessToken,
@@ -116,7 +147,7 @@ func (s *Scheduler) runSyncForUser(userID string) {
 			log.Printf("scheduler: ynab token refresh failed for user %s: %v", userID, err)
 			return
 		}
-		_ = s.store.UpsertToken(db.OAuthToken{
+		_ = store.UpsertToken(db.OAuthToken{
 			UserID:       userID,
 			Provider:     "ynab",
 			AccessToken:  res.AccessToken,
@@ -143,10 +174,10 @@ func (s *Scheduler) runSyncForUser(userID string) {
 	// A locally-valid access token can still be rejected server-side (Questrade
 	// rotates/invalidates tokens); force a refresh and retry once on a 401.
 	if errors.Is(runErr, questrade.ErrUnauthorized) {
-		if latest, gerr := s.store.GetToken(userID, "questrade"); gerr == nil && latest != nil {
+		if latest, gerr := store.GetToken(userID, "questrade"); gerr == nil && latest != nil {
 			if res, rerr := auth.RefreshQuestradeToken(latest.RefreshToken); rerr == nil {
 				qc = questrade.NewClientFromTokens(res.RefreshToken, res.AccessToken, res.APIServer, res.ExpiresAt)
-				_ = s.store.UpsertToken(db.OAuthToken{
+				_ = store.UpsertToken(db.OAuthToken{
 					UserID:       userID,
 					Provider:     "questrade",
 					AccessToken:  res.AccessToken,
@@ -178,7 +209,7 @@ func (s *Scheduler) runSyncForUser(userID string) {
 		detail = appsync.MarshalDetail(result.AccountResults)
 	}
 
-	_ = s.store.CreateSyncHistory(db.SyncHistory{
+	_ = store.CreateSyncHistory(db.SyncHistory{
 		UserID:         userID,
 		RanAt:          time.Now(),
 		Status:         status,

@@ -2,15 +2,26 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 )
+
+// ErrQuestradeLinked is returned by LinkQuestradeUser when the user is already
+// linked to a Questrade login, or that login is already linked to another user.
+var ErrQuestradeLinked = errors.New("questrade user already linked")
 
 // Store is the persistence interface used by the API and scheduler. It has two
 // implementations: SQLiteStore (local dev) and DynamoStore (AWS Lambda).
 type Store interface {
 	CreateUser() (string, error)
 	UserExists(id string) (bool, error)
+
+	// Users are identified by their Questrade user ID, which survives refresh
+	// token rotation and lost cookies. "" means no link.
+	UserByQuestradeID(qtUserID string) (string, error)
+	QuestradeIDOf(userID string) (string, error)
+	LinkQuestradeUser(userID, qtUserID string) error
 
 	UpsertToken(t OAuthToken) error
 	GetToken(userID, provider string) (*OAuthToken, error)

@@ -220,16 +220,19 @@ flowchart LR
 | `GET` `PUT` `DELETE` | `/api/mappings` | Read, replace, or remove mappings. |
 | `GET` | `/api/mappings/suggest?budget_id=` | Name-based guesses at which YNAB account each Questrade account maps to. Read-only; the user confirms. |
 | `POST` | `/api/sync/run?dry_run=true` | Run a sync. Dry-run is what the dashboard calls on load. |
-| `GET` `PUT` | `/api/sync/schedule` | Per-user cron expression for automatic syncs. |
+| `GET` `PUT` | `/api/sync/schedule` | Automatic sync frequency: `off`, `daily` (weekdays) or `weekly` (Fridays). The server assigns each user a fixed time between 4:30 and 7:30 PM Eastern. |
 | `GET` | `/api/sync/history` | The ledger. |
 
 **Storage** is one interface with two backends. Locally it's SQLite via the pure-Go
 `modernc` driver, so there's no CGO and the same binary cross-compiles for Lambda.
 On AWS it's a single DynamoDB table. Tokens for both services are stored per user.
 
-**The scheduler** loads every enabled cron expression at startup and runs the sync
-engine on schedule. In Lambda it's swapped for a no-op, since a long-lived cron
-doesn't fit a function that only exists while handling a request.
+**The scheduler** turns each user's frequency into a cron expression at a time slot
+hashed from their user ID, spread over 4:30–7:30 PM Eastern so users don't all sync
+at once. Locally, `serve` loads every enabled one at startup and runs them in-process.
+In Lambda there's no long-lived process, so EventBridge Scheduler invokes the function
+every 5 minutes. It queues one SQS job per user whose slot fell in that interval, and
+the queue runs them with a concurrency cap of 5.
 
 ## Run it locally
 

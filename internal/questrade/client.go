@@ -302,8 +302,21 @@ func (c *Client) GetAccountBalancesByID(accountID string) (*AccountBalances, err
 	return &balances, nil
 }
 
-// GetAccounts retrieves all accounts
-func (c *Client) GetAccounts() ([]Account, error) {
+// GetUserID returns the Questrade user ID that owns this token. It's stable
+// across refresh-token rotations, so it identifies the person.
+func (c *Client) GetUserID() (int, error) {
+	resp, err := c.fetchAccounts()
+	if err != nil {
+		return 0, err
+	}
+	if resp.UserID == 0 {
+		return 0, fmt.Errorf("accounts response had no userId")
+	}
+	return resp.UserID, nil
+}
+
+// fetchAccounts calls /v1/accounts without fetching balances.
+func (c *Client) fetchAccounts() (*AccountsResponse, error) {
 	if c.accessToken == "" {
 		return nil, fmt.Errorf("not authenticated, call Refresh first")
 	}
@@ -337,6 +350,15 @@ func (c *Client) GetAccounts() ([]Account, error) {
 	var accountsResp AccountsResponse
 	if err := json.Unmarshal(body, &accountsResp); err != nil {
 		return nil, fmt.Errorf("failed to parse accounts response: %w", err)
+	}
+	return &accountsResp, nil
+}
+
+// GetAccounts retrieves all accounts with their balances.
+func (c *Client) GetAccounts() ([]Account, error) {
+	accountsResp, err := c.fetchAccounts()
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch balances for each account in parallel

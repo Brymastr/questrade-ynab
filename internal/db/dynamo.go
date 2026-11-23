@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 //
 //	PK = USER#<id>
 //	SK = PROFILE | TOKEN#<provider> | MAPPING#<id> | SCHEDULE | HISTORY#<rfc3339>#<uuid>
+//
+//	PK = QTUSER#<questrade user id>, SK = LINK  (user_id → owning USER#)
 type DynamoStore struct {
 	client *dynamodb.Client
 	table  string
@@ -42,7 +45,10 @@ func (d *DynamoStore) Close() error { return nil }
 const (
 	skProfile  = "PROFILE"
 	skSchedule = "SCHEDULE"
+	skLink     = "LINK"
 )
+
+func qtUserPK(qtUserID string) string { return "QTUSER#" + qtUserID }
 
 func userPK(id string) string        { return "USER#" + id }
 func skToken(provider string) string { return "TOKEN#" + provider }
@@ -98,6 +104,61 @@ func (d *DynamoStore) CreateUser() (string, error) {
 		return "", fmt.Errorf("create user: %w", err)
 	}
 	return id, nil
+}
+
+func (d *DynamoStore) UserByQuestradeID(qtUserID string) (string, error) {
+	out, err := d.client.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName:      aws.String(d.table),
+		Key:            map[string]types.AttributeValue{"PK": avS(qtUserPK(qtUserID)), "SK": avS(skLink)},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return "", err
+	}
+	return getS(out.Item, "user_id"), nil
+}
+
+func (d *DynamoStore) QuestradeIDOf(userID string) (string, error) {
+	out, err := d.client.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName:      aws.String(d.table),
+		Key:            map[string]types.AttributeValue{"PK": avS(userPK(userID)), "SK": avS(skProfile)},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return "", err
+	}
+	return getS(out.Item, "questrade_user_id"), nil
+}
+
+// LinkQuestradeUser writes the link item and stamps the profile in one
+// transaction, so neither side can be linked twice even under concurrent
+// connects.
+func (d *DynamoStore) LinkQuestradeUser(userID, qtUserID string) error {
+	_, err := d.client.TransactWriteItems(context.Background(), &dynamodb.TransactWriteItemsInput{
+		TransactItems: []types.TransactWriteItem{
+			{Put: &types.Put{
+				TableName: aws.String(d.table),
+				Item: map[string]types.AttributeValue{
+					"PK":      avS(qtUserPK(qtUserID)),
+					"SK":      avS(skLink),
+					"user_id": avS(userID),
+				},
+				ConditionExpression: aws.String("attribute_not_exists(PK)"),
+			}},
+			{Update: &types.Update{
+				TableName:                 aws.String(d.table),
+				Key:                       map[string]types.AttributeValue{"PK": avS(userPK(userID)), "SK": avS(skProfile)},
+				UpdateExpression:          aws.String("SET questrade_user_id = :q"),
+				ConditionExpression:       aws.String("attribute_exists(PK) AND attribute_not_exists(questrade_user_id)"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{":q": avS(qtUserID)},
+			}},
+		},
+	})
+	var canceled *types.TransactionCanceledException
+	if errors.As(err, &canceled) {
+		return ErrQuestradeLinked
+	}
+	return err
 }
 
 func (d *DynamoStore) UserExists(id string) (bool, error) {
@@ -267,7 +328,9 @@ func (d *DynamoStore) UpsertSchedule(sc SyncSchedule) error {
 }
 
 func (d *DynamoStore) GetAllEnabledSchedules() ([]SyncSchedule, error) {
-	out, err := d.client.Scan(context.Background(), &dynamodb.ScanInput{
+	// The filter applies after each 1 MB page is read, so a table full of
+	// history rows can return empty pages before the schedules; walk them all.
+	pages := dynamodb.NewScanPaginator(d.client, &dynamodb.ScanInput{
 		TableName:        aws.String(d.table),
 		FilterExpression: aws.String("SK = :sk AND #en = :true"),
 		ExpressionAttributeNames: map[string]string{
@@ -278,21 +341,24 @@ func (d *DynamoStore) GetAllEnabledSchedules() ([]SyncSchedule, error) {
 			":true": avBool(true),
 		},
 	})
-	if err != nil {
-		return nil, err
-	}
 	var schedules []SyncSchedule
-	for _, item := range out.Items {
-		sc := SyncSchedule{
-			UserID:         userIDFromPK(getS(item, "PK")),
-			CronExpression: getS(item, "cron_expression"),
-			Enabled:        getBool(item, "enabled"),
+	for pages.HasMorePages() {
+		out, err := pages.NextPage(context.Background())
+		if err != nil {
+			return nil, err
 		}
-		if nr := getS(item, "next_run_at"); nr != "" {
-			t := parseTime(nr)
-			sc.NextRunAt = &t
+		for _, item := range out.Items {
+			sc := SyncSchedule{
+				UserID:         userIDFromPK(getS(item, "PK")),
+				CronExpression: getS(item, "cron_expression"),
+				Enabled:        getBool(item, "enabled"),
+			}
+			if nr := getS(item, "next_run_at"); nr != "" {
+				t := parseTime(nr)
+				sc.NextRunAt = &t
+			}
+			schedules = append(schedules, sc)
 		}
-		schedules = append(schedules, sc)
 	}
 	return schedules, nil
 }

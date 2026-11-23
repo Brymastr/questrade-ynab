@@ -8,6 +8,7 @@ import (
 
 	"github.com/brymastr/questrade-ynab/internal/db"
 	"github.com/brymastr/questrade-ynab/internal/questrade"
+	"github.com/brymastr/questrade-ynab/internal/scheduler"
 	appsync "github.com/brymastr/questrade-ynab/internal/sync"
 )
 
@@ -81,6 +82,23 @@ func handleRunSync(store db.Store) http.HandlerFunc {
 	}
 }
 
+// scheduleResponse is what the UI sees: a preset frequency, never a cron
+// expression, since the time of day isn't user-configurable.
+type scheduleResponse struct {
+	Frequency scheduler.Frequency `json:"frequency"`
+	NextRunAt *time.Time          `json:"next_run_at"`
+}
+
+func toScheduleResponse(sc *db.SyncSchedule) scheduleResponse {
+	resp := scheduleResponse{
+		Frequency: scheduler.FrequencyOf(sc.CronExpression, sc.Enabled, sc.UserID),
+	}
+	if sc.Enabled {
+		resp.NextRunAt = scheduler.NextRun(sc.CronExpression, time.Now())
+	}
+	return resp
+}
+
 func handleGetSchedule(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
@@ -89,14 +107,13 @@ func handleGetSchedule(store db.Store) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, sc)
+		writeJSON(w, http.StatusOK, toScheduleResponse(sc))
 	}
 }
 
 func handlePutSchedule(store db.Store, sched ScheduleManager) http.HandlerFunc {
 	type scheduleInput struct {
-		CronExpression string `json:"cron_expression"`
-		Enabled        bool   `json:"enabled"`
+		Frequency scheduler.Frequency `json:"frequency"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := userIDFromCtx(r)
@@ -106,30 +123,35 @@ func handlePutSchedule(store db.Store, sched ScheduleManager) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		if inp.CronExpression == "" {
-			writeError(w, http.StatusBadRequest, "cron_expression required")
-			return
-		}
 
-		sc := db.SyncSchedule{
-			UserID:         userID,
-			CronExpression: inp.CronExpression,
-			Enabled:        inp.Enabled,
+		sc := db.SyncSchedule{UserID: userID}
+		if inp.Frequency == scheduler.Off {
+			// Keep a valid expression on disabled rows so the stored shape
+			// stays uniform; it never runs while Enabled is false.
+			sc.CronExpression, _ = scheduler.CronFor(scheduler.Daily, userID)
+		} else {
+			expr, err := scheduler.CronFor(inp.Frequency, userID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "frequency must be off, daily or weekly")
+				return
+			}
+			sc.CronExpression = expr
+			sc.Enabled = true
 		}
 		if err := store.UpsertSchedule(sc); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		// Update the live scheduler
-		if inp.Enabled {
-			sched.Register(userID, inp.CronExpression)
+		// Update the live scheduler (a no-op on Lambda, where an EventBridge
+		// tick reads schedules from the store).
+		if sc.Enabled {
+			sched.Register(userID, sc.CronExpression)
 		} else {
 			sched.Deregister(userID)
 		}
 
-		saved, _ := store.GetSchedule(userID)
-		writeJSON(w, http.StatusOK, saved)
+		writeJSON(w, http.StatusOK, toScheduleResponse(&sc))
 	}
 }
 

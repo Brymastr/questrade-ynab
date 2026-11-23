@@ -117,7 +117,25 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrateSQLite(db); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &SQLiteStore{db: db}, nil
+}
+
+// migrateSQLite applies changes to databases created by an older schema.
+func migrateSQLite(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'questrade_user_id'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE users ADD COLUMN questrade_user_id TEXT`); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_questrade_user_id ON users(questrade_user_id)`)
+	return err
 }
 
 func (s *SQLiteStore) Close() error {
@@ -139,6 +157,36 @@ func (s *SQLiteStore) UserExists(id string) (bool, error) {
 	var count int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, id).Scan(&count)
 	return count > 0, err
+}
+
+func (s *SQLiteStore) UserByQuestradeID(qtUserID string) (string, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM users WHERE questrade_user_id = ?`, qtUserID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+func (s *SQLiteStore) QuestradeIDOf(userID string) (string, error) {
+	var qt sql.NullString
+	err := s.db.QueryRow(`SELECT questrade_user_id FROM users WHERE id = ?`, userID).Scan(&qt)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return qt.String, err
+}
+
+func (s *SQLiteStore) LinkQuestradeUser(userID, qtUserID string) error {
+	res, err := s.db.Exec(`UPDATE users SET questrade_user_id = ? WHERE id = ? AND questrade_user_id IS NULL
+		AND NOT EXISTS (SELECT 1 FROM users WHERE questrade_user_id = ?)`, qtUserID, userID, qtUserID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrQuestradeLinked
+	}
+	return nil
 }
 
 // --- oauth tokens ---

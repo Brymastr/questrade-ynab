@@ -2,13 +2,67 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/brymastr/questrade-ynab/internal/auth"
 	"github.com/brymastr/questrade-ynab/internal/db"
+	"github.com/brymastr/questrade-ynab/internal/questrade"
 )
+
+// questradeUserAllowed applies ALLOWED_QUESTRADE_USER_IDS, a comma-separated
+// allowlist. Unset or empty means anyone can connect.
+func questradeUserAllowed(qtUserID string) bool {
+	list := strings.TrimSpace(os.Getenv("ALLOWED_QUESTRADE_USER_IDS"))
+	if list == "" {
+		return true
+	}
+	for _, id := range strings.Split(list, ",") {
+		if strings.TrimSpace(id) == qtUserID {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveQuestradeUser returns the app user for a Questrade login:
+//   - the user already linked to it, whatever the current session says;
+//   - else the session's user, if that user isn't linked to another login yet
+//     (adopts accounts created before users were linked);
+//   - else a new user, linked to it.
+func resolveQuestradeUser(store db.Store, qtUserID, sessionUserID string) (string, error) {
+	if id, err := store.UserByQuestradeID(qtUserID); err != nil || id != "" {
+		return id, err
+	}
+	if sessionUserID != "" {
+		if ok, _ := store.UserExists(sessionUserID); ok {
+			err := store.LinkQuestradeUser(sessionUserID, qtUserID)
+			if err == nil {
+				return sessionUserID, nil
+			}
+			if !errors.Is(err, db.ErrQuestradeLinked) {
+				return "", err
+			}
+		}
+	}
+	id, err := store.CreateUser()
+	if err != nil {
+		return "", err
+	}
+	if err := store.LinkQuestradeUser(id, qtUserID); err != nil {
+		// Lost a race with a concurrent connect for the same login; use theirs.
+		if errors.Is(err, db.ErrQuestradeLinked) {
+			if existing, gerr := store.UserByQuestradeID(qtUserID); gerr == nil && existing != "" {
+				return existing, nil
+			}
+		}
+		return "", err
+	}
+	return id, nil
+}
 
 // handleQuestradeConnect exchanges a manually-generated Questrade refresh token
 // for an access token. Questrade personal apps do not support the interactive
@@ -35,14 +89,27 @@ func handleQuestradeConnect(store db.Store) http.HandlerFunc {
 			return
 		}
 
-		// Get or create user from existing session
-		userID, _ := auth.GetSession(r)
-		if userID == "" {
-			userID, err = store.CreateUser()
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "create user failed")
-				return
-			}
+		// Identify the person by their Questrade user ID, not the token (which
+		// rotates) or the cookie (which can be lost).
+		qc := questrade.NewClientFromTokens(result.RefreshToken, result.AccessToken, result.APIServer, result.ExpiresAt)
+		qtID, err := qc.GetUserID()
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "couldn't read your Questrade profile: "+err.Error())
+			return
+		}
+		qtUserID := strconv.Itoa(qtID)
+		if !questradeUserAllowed(qtUserID) {
+			writeError(w, http.StatusForbidden, "This app isn't open to new users yet.")
+			return
+		}
+
+		sessionUserID, _ := auth.GetSession(r)
+		userID, err := resolveQuestradeUser(store, qtUserID, sessionUserID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "resolve user failed")
+			return
+		}
+		if userID != sessionUserID {
 			if err := auth.SetSession(w, userID); err != nil {
 				writeError(w, http.StatusInternalServerError, "set session failed")
 				return

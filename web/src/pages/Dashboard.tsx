@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import AutoSync from '../components/AutoSync'
 import DeltaRow from '../components/DeltaRow'
 import FirstRun from '../components/FirstRun'
 import Badge from '../components/ui/Badge'
@@ -133,6 +134,8 @@ export default function Dashboard({ user, onLogout }: Props) {
             onRecheck={checkDrift}
           />
         )}
+
+        {!firstRun && loaded && <AutoSync />}
 
         {(!firstRun || history.length > 0) && loaded && (
           <section id="ledger" className="space-y-4">

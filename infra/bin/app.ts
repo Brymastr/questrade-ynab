@@ -27,6 +27,10 @@ if (!domainName || !hostedZoneName) {
 // Secrets Manager secret the stack creates (per-environment by default).
 const secretName = process.env.SECRETS_NAME ?? `questrade-ynab/${envName}`;
 
+// Comma-separated Questrade user IDs allowed to connect. Unset or empty opens
+// the app to anyone.
+const allowedQuestradeUserIds = process.env.ALLOWED_QUESTRADE_USER_IDS ?? '';
+
 // One stack per environment, so dev and prod are fully separate resources.
 new QuestradeYnabStack(app, `QuestradeYnab-${envName}`, {
   // CloudFront ACM certificates must live in us-east-1, so deploy the whole
@@ -36,4 +40,5 @@ new QuestradeYnabStack(app, `QuestradeYnab-${envName}`, {
   domainName,
   hostedZoneName,
   secretName,
+  allowedQuestradeUserIds,
 });

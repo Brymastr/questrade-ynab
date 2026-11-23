@@ -65,3 +65,10 @@ export interface MappingSuggestion {
   score: number
   reason: string
 }
+
+export type SyncFrequency = 'off' | 'daily' | 'weekly' | 'custom'
+
+export interface SyncSchedule {
+  frequency: SyncFrequency
+  next_run_at: string | null
+}

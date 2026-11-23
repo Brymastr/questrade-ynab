@@ -2,8 +2,10 @@ import type {
   Mapping,
   MappingSuggestion,
   QuestradeAccount,
+  SyncFrequency,
   SyncHistory,
   SyncResult,
+  SyncSchedule,
   User,
   YNABAccount,
   YNABBudget,
@@ -49,6 +51,14 @@ export const api = {
 
   runSync: (dryRun = false) =>
     request<SyncResult>(`/api/sync/run${dryRun ? '?dry_run=true' : ''}`, { method: 'POST' }),
+
+  getSchedule: () => request<SyncSchedule>('/api/sync/schedule'),
+
+  putSchedule: (frequency: Exclude<SyncFrequency, 'custom'>) =>
+    request<SyncSchedule>('/api/sync/schedule', {
+      method: 'PUT',
+      body: JSON.stringify({ frequency }),
+    }),
 
   getSyncHistory: (limit = 50) =>
     request<SyncHistory[]>(`/api/sync/history?limit=${limit}`),
