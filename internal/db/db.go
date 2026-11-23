@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // ErrQuestradeLinked is returned by LinkQuestradeUser when the user is already
@@ -22,6 +23,11 @@ type Store interface {
 	UserByQuestradeID(qtUserID string) (string, error)
 	QuestradeIDOf(userID string) (string, error)
 	LinkQuestradeUser(userID, qtUserID string) error
+
+	// Sessions, keyed by a hash of the session ID (see auth.SessionStore).
+	CreateSession(idHash, userID string, expiresAt time.Time) error
+	SessionUser(idHash string) (string, error)
+	DeleteSession(idHash string) error
 
 	UpsertToken(t OAuthToken) error
 	GetToken(userID, provider string) (*OAuthToken, error)
@@ -44,19 +50,30 @@ type Store interface {
 // New selects and opens a Store based on the DB_BACKEND env var:
 //   - "dynamo": DynamoDB (uses DYNAMO_TABLE and the default AWS config)
 //   - anything else (default): SQLite (uses DATABASE_PATH, default ./data/app.db)
+//
+// The returned store encrypts OAuth tokens (see tokenCipherFromEnv).
 func New(ctx context.Context) (Store, error) {
+	c, err := tokenCipherFromEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var s Store
 	switch os.Getenv("DB_BACKEND") {
 	case "dynamo":
 		table := os.Getenv("DYNAMO_TABLE")
 		if table == "" {
 			return nil, fmt.Errorf("DYNAMO_TABLE is required when DB_BACKEND=dynamo")
 		}
-		return NewDynamoStore(ctx, table)
+		s, err = NewDynamoStore(ctx, table)
 	default:
 		path := os.Getenv("DATABASE_PATH")
 		if path == "" {
 			path = "./data/app.db"
 		}
-		return OpenSQLite(path)
+		s, err = OpenSQLite(path)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return WithTokenEncryption(s, c), nil
 }

@@ -103,14 +103,14 @@ func handleQuestradeConnect(store db.Store) http.HandlerFunc {
 			return
 		}
 
-		sessionUserID, _ := auth.GetSession(r)
+		sessionUserID, _ := auth.GetSession(r, store)
 		userID, err := resolveQuestradeUser(store, qtUserID, sessionUserID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "resolve user failed")
 			return
 		}
 		if userID != sessionUserID {
-			if err := auth.SetSession(w, userID); err != nil {
+			if err := auth.SetSession(w, store, userID); err != nil {
 				writeError(w, http.StatusInternalServerError, "set session failed")
 				return
 			}
@@ -140,7 +140,7 @@ func handleQuestradeConnect(store db.Store) http.HandlerFunc {
 func handleYNABLogin(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Must already be authenticated (Questrade connected first)
-		if _, err := auth.GetSession(r); err != nil {
+		if _, err := auth.GetSession(r, store); err != nil {
 			http.Redirect(w, r, os.Getenv("APP_URL"), http.StatusFound)
 			return
 		}
@@ -151,7 +151,7 @@ func handleYNABLogin(store db.Store) http.HandlerFunc {
 
 func handleYNABCallback(store db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := auth.GetSession(r)
+		userID, err := auth.GetSession(r, store)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "not authenticated")
 			return
@@ -185,9 +185,14 @@ func handleYNABCallback(store db.Store) http.HandlerFunc {
 	}
 }
 
-func handleLogout(w http.ResponseWriter, r *http.Request) {
-	auth.ClearSession(w)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
+func handleLogout(store db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := auth.ClearSession(w, r, store); err != nil {
+			writeError(w, http.StatusInternalServerError, "logout failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
+	}
 }
 
 func handleMe(store db.Store) http.HandlerFunc {

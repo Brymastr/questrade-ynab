@@ -134,7 +134,15 @@ func migrateSQLite(db *sql.DB) error {
 			return err
 		}
 	}
-	_, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_questrade_user_id ON users(questrade_user_id)`)
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_questrade_user_id ON users(questrade_user_id)`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS sessions (
+		id_hash    TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`)
 	return err
 }
 
@@ -187,6 +195,31 @@ func (s *SQLiteStore) LinkQuestradeUser(userID, qtUserID string) error {
 		return ErrQuestradeLinked
 	}
 	return nil
+}
+
+// --- sessions ---
+
+func (s *SQLiteStore) CreateSession(idHash, userID string, expiresAt time.Time) error {
+	// Opportunistically drop expired sessions; SQLite has no TTL.
+	_, _ = s.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, time.Now().UTC().Format(time.RFC3339))
+	_, err := s.db.Exec(`INSERT INTO sessions (id_hash, user_id, expires_at) VALUES (?, ?, ?)`,
+		idHash, userID, expiresAt.UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *SQLiteStore) SessionUser(idHash string) (string, error) {
+	var userID string
+	err := s.db.QueryRow(`SELECT user_id FROM sessions WHERE id_hash = ? AND expires_at > ?`,
+		idHash, time.Now().UTC().Format(time.RFC3339)).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return userID, err
+}
+
+func (s *SQLiteStore) DeleteSession(idHash string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id_hash = ?`, idHash)
+	return err
 }
 
 // --- oauth tokens ---

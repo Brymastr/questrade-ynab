@@ -23,6 +23,7 @@ import (
 //	SK = PROFILE | TOKEN#<provider> | MAPPING#<id> | SCHEDULE | HISTORY#<rfc3339>#<uuid>
 //
 //	PK = QTUSER#<questrade user id>, SK = LINK  (user_id → owning USER#)
+//	PK = SESSION#<sha256 of session id>, SK = SESSION  (user_id, expires_at, ttl)
 type DynamoStore struct {
 	client *dynamodb.Client
 	table  string
@@ -49,6 +50,9 @@ const (
 )
 
 func qtUserPK(qtUserID string) string { return "QTUSER#" + qtUserID }
+func sessionPK(idHash string) string  { return "SESSION#" + idHash }
+
+const skSession = "SESSION"
 
 func userPK(id string) string        { return "USER#" + id }
 func skToken(provider string) string { return "TOKEN#" + provider }
@@ -158,6 +162,47 @@ func (d *DynamoStore) LinkQuestradeUser(userID, qtUserID string) error {
 	if errors.As(err, &canceled) {
 		return ErrQuestradeLinked
 	}
+	return err
+}
+
+// CreateSession stores a session with a `ttl` attribute so DynamoDB deletes it
+// after expiry (the table's TTL is enabled in the CDK stack).
+func (d *DynamoStore) CreateSession(idHash, userID string, expiresAt time.Time) error {
+	_, err := d.client.PutItem(context.Background(), &dynamodb.PutItemInput{
+		TableName: aws.String(d.table),
+		Item: map[string]types.AttributeValue{
+			"PK":         avS(sessionPK(idHash)),
+			"SK":         avS(skSession),
+			"user_id":    avS(userID),
+			"expires_at": avS(expiresAt.UTC().Format(time.RFC3339)),
+			"ttl":        &types.AttributeValueMemberN{Value: strconv.FormatInt(expiresAt.Unix(), 10)},
+		},
+		ConditionExpression: aws.String("attribute_not_exists(PK)"),
+	})
+	return err
+}
+
+// SessionUser checks expiry itself, since TTL deletion can lag by days.
+func (d *DynamoStore) SessionUser(idHash string) (string, error) {
+	out, err := d.client.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName:      aws.String(d.table),
+		Key:            map[string]types.AttributeValue{"PK": avS(sessionPK(idHash)), "SK": avS(skSession)},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil || out.Item == nil {
+		return "", err
+	}
+	if !time.Now().Before(parseTime(getS(out.Item, "expires_at"))) {
+		return "", nil
+	}
+	return getS(out.Item, "user_id"), nil
+}
+
+func (d *DynamoStore) DeleteSession(idHash string) error {
+	_, err := d.client.DeleteItem(context.Background(), &dynamodb.DeleteItemInput{
+		TableName: aws.String(d.table),
+		Key:       map[string]types.AttributeValue{"PK": avS(sessionPK(idHash)), "SK": avS(skSession)},
+	})
 	return err
 }
 

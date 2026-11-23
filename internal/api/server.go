@@ -20,7 +20,7 @@ type ScheduleManager interface {
 func NewRouter(store db.Store, sched ScheduleManager) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(requestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{corsOrigin()},
@@ -36,11 +36,11 @@ func NewRouter(store db.Store, sched ScheduleManager) http.Handler {
 	r.Post("/auth/questrade", handleQuestradeConnect(store))
 	r.Get("/auth/ynab", handleYNABLogin(store))
 	r.Get("/auth/ynab/callback", handleYNABCallback(store))
-	r.Post("/auth/logout", handleLogout)
+	r.Post("/auth/logout", handleLogout(store))
 
 	// API — requires session
 	r.Group(func(r chi.Router) {
-		r.Use(requireAuth)
+		r.Use(requireAuth(store))
 
 		r.Get("/api/me", handleMe(store))
 

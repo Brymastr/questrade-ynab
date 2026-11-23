@@ -14,6 +14,8 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as schedulerTargets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 
 export interface QuestradeYnabStackProps extends cdk.StackProps {
@@ -45,6 +47,8 @@ export class QuestradeYnabStack extends cdk.Stack {
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
+      // Session items carry `ttl` (epoch seconds) so DynamoDB deletes them after expiry.
+      timeToLiveAttribute: 'ttl',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -68,12 +72,28 @@ export class QuestradeYnabStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    // Encrypts users' OAuth tokens before they're written to DynamoDB. Only the
+    // Lambda is granted use of it, and every use is logged in CloudTrail.
+    // Retained on stack deletion: losing it makes stored tokens unreadable.
+    const tokenKey = new kms.Key(this, 'TokenKey', {
+      description: 'questrade-ynab OAuth token encryption',
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // Shared secret CloudFront sends to the Lambda origin, so requests that
     // skip CloudFront and hit the public Function URL directly are refused.
     // CloudFormation resolves it via a dynamic reference (not in the template).
     const originVerify = new secretsmanager.Secret(this, 'OriginVerify', {
       description: 'Header value CloudFront sends to the API origin',
       generateSecretString: { excludePunctuation: true, passwordLength: 48 },
+    });
+
+    // Function logs (request paths, sync outcomes, account numbers in warnings)
+    // expire after a month rather than accumulating forever.
+    const apiLogs = new logs.LogGroup(this, 'ApiLogs', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     // --- Lambda (Go, arm64, custom runtime) ---
@@ -85,6 +105,7 @@ export class QuestradeYnabStack extends cdk.Stack {
       handler: 'bootstrap',
       code: lambda.Code.fromAsset(path.join(__dirname, '..', 'assets')),
       memorySize: 256,
+      logGroup: apiLogs,
       // One user's sync, or one tick enqueueing due users. HTTP requests are
       // capped lower by CloudFront's origin timeout.
       timeout: cdk.Duration.seconds(60),
@@ -100,12 +121,14 @@ export class QuestradeYnabStack extends cdk.Stack {
         YNAB_REDIRECT_URI: `${appUrl}/auth/ynab/callback`,
         SECRETS_ARN: secret.secretArn,
         ORIGIN_VERIFY_SECRET_ARN: originVerify.secretArn,
+        TOKEN_KMS_KEY_ID: tokenKey.keyArn,
         ALLOWED_QUESTRADE_USER_IDS: props.allowedQuestradeUserIds,
       },
     });
     table.grantReadWriteData(fn);
     secret.grantRead(fn);
     originVerify.grantRead(fn);
+    tokenKey.grantEncryptDecrypt(fn);
 
     // --- Scheduled sync ---
     // Lambda has no long-lived cron. EventBridge Scheduler ticks every 5
