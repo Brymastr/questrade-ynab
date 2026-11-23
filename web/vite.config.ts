@@ -8,7 +8,7 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
       '/auth': 'http://localhost:8080',
     },
-    allowedHosts: ['localhost', 'wsl.dorsay.internal'],
+    allowedHosts: ['localhost', 'desktop.dorsay.internal', 'questrade.home.dorsay.dev'],
   },
 
 })
